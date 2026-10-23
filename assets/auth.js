@@ -1,5 +1,6 @@
 // QFClash 官网账号模块：与 App 同一账号体系（同服务器 /auth/*）。
-// 提供：导航登录状态、登录/注册弹窗（注册三步：发码→验码→设密码）、双令牌本地保存、
+// 提供：导航登录状态、登录/注册弹窗（注册一步式：同屏填邮箱、验证码与密码，
+// 提交时前端依次验码换票据、设密码完成注册）、双令牌本地保存、
 // 401 自动续期、谷歌登录占位。论坛页通过 window.QFAuth 复用同一登录态。
 (function () {
   var API = "https://qfclash-account.a718983610.workers.dev";
@@ -12,13 +13,12 @@
       pwd_set_ph: "请设置登录密码（8 至 72 位）", pwd_confirm_ph: "请再次输入密码",
       google_btn: "使用 Google 账号登录", or: "或",
       google_soon: "谷歌登录即将上线，敬请期待。",
-      do_login: "登录", send_code: "发送验证码", verify_next: "验证并继续",
-      complete_reg: "完成注册", back: "返回上一步",
+      do_login: "登录", send_code: "发送验证码",
+      complete_reg: "完成注册",
       dual_hint: "为保障账号安全，本次登录需完成邮箱验证码校验。",
       get_code: "获取验证码",
       reg_note: "在本网站注册的账号与 QFClash 应用通用，注册完成后可直接使用同一账号在应用内登录。",
-      reg_step1_note: "请输入邮箱并获取验证码，验证码将发送至您的邮箱。验证通过后，设置登录密码（需填写两次确认）。",
-      reg_step2_note: "邮箱验证已完成，请设置登录密码以完成注册。",
+      reg_form_note: "请填写以下信息完成注册。获取验证码后将其填入下方，并设置登录密码（需填写两次，两次输入须一致）。",
       v_email: "请输入有效的邮箱地址。",
       v_pwd_empty: "请输入密码。",
       v_pwd_len: "密码长度需为 8 至 72 位，请重新输入。",
@@ -38,13 +38,12 @@
       pwd_set_ph: "Set a password (8 to 72 characters)", pwd_confirm_ph: "Re-enter the password",
       google_btn: "Continue with Google", or: "or",
       google_soon: "Google sign-in is coming soon. Stay tuned.",
-      do_login: "Sign In", send_code: "Send Code", verify_next: "Verify and Continue",
-      complete_reg: "Complete Registration", back: "Back",
+      do_login: "Sign In", send_code: "Send Code",
+      complete_reg: "Complete Registration",
       dual_hint: "To keep your account secure, this sign-in requires an email verification code.",
       get_code: "Get Code",
       reg_note: "Accounts registered on this website work across QFClash: once registered, you can sign in to the app directly with the same account.",
-      reg_step1_note: "Enter your email address and request a verification code; the code will be sent to your email. After verification, you will set a sign-in password (entered twice for confirmation).",
-      reg_step2_note: "Email verified. Please set a password to complete registration.",
+      reg_form_note: "Complete the fields below to register. Request a verification code, enter it below, and set a sign-in password (entered twice; both entries must match).",
       v_email: "Please enter a valid email address.",
       v_pwd_empty: "Please enter your password.",
       v_pwd_len: "The password must be 8 to 72 characters. Please try again.",
@@ -137,7 +136,7 @@
   function fireChange() { window.dispatchEvent(new CustomEvent("qf-auth-change")); }
 
   // ---------- 弹窗 ----------
-  var regState = { email: "", ticket: "" };
+  var regState = { email: "" };
   function buildModal() {
     if (document.getElementById("authModal")) return;
     var mask = document.createElement("div");
@@ -165,27 +164,20 @@
       '<div style="display:flex;gap:10px"><button type="button" class="btn-blue" id="liSubmit"></button>' +
       '<button type="button" class="small-btn" data-close></button></div>' +
       "</div>" +
-      // 注册
+      // 注册（一步式：邮箱＋验证码＋密码同屏，一次提交完成）
       '<div id="paneRegister" class="hidden">' +
       '<p class="step-note" id="regNote"></p>' +
-      '<div id="regStep1">' +
-      '<p class="step-note" id="regStep1Note"></p>' +
+      '<p class="step-note" id="regFormNote"></p>' +
       '<input id="rgEmail" type="email" autocomplete="email">' +
       '<p class="field-err" id="rgEmailErr"></p>' +
       '<div class="row"><input id="rgCode" type="text"><button class="small-btn" id="rgSendCode" type="button"></button></div>' +
       '<p class="field-err" id="rgCodeErr"></p>' +
-      '<div style="display:flex;gap:10px"><button type="button" class="btn-blue" id="rgVerify"></button>' +
-      '<button type="button" class="small-btn" data-close></button></div>' +
-      "</div>" +
-      '<div id="regStep2" class="hidden">' +
-      '<p class="step-note" id="regStep2Note"></p>' +
       '<input id="rgPwd" type="password" autocomplete="new-password">' +
       '<p class="field-err" id="rgPwdErr"></p>' +
       '<input id="rgPwd2" type="password" autocomplete="new-password">' +
       '<p class="field-err" id="rgPwd2Err"></p>' +
       '<div style="display:flex;gap:10px"><button type="button" class="btn-blue" id="rgComplete"></button>' +
-      '<button type="button" class="small-btn" id="rgBack"></button></div>' +
-      "</div>" +
+      '<button type="button" class="small-btn" data-close></button></div>' +
       "</div>" +
       "</div>";
     document.body.appendChild(mask);
@@ -215,45 +207,7 @@
         else showAlert(serverMsg(r.data), false);
       }).catch(function () { showAlert(t("generic_fail"), false); });
     });
-    document.getElementById("rgVerify").addEventListener("click", function () {
-      var email = document.getElementById("rgEmail").value.trim();
-      var code = document.getElementById("rgCode").value.trim();
-      clearErr("rgEmail", "rgEmailErr"); clearErr("rgCode", "rgCodeErr");
-      if (!validEmail(email)) { fieldErr("rgEmail", "rgEmailErr", t("v_email")); return; }
-      if (!code) { fieldErr("rgCode", "rgCodeErr", t("v_code")); return; }
-      post("/auth/register/verify", { email: email, code: code }).then(function (r) {
-        if (r.ok && r.data.ticket) {
-          regState.email = email; regState.ticket = r.data.ticket;
-          document.getElementById("regStep1").classList.add("hidden");
-          document.getElementById("regStep2").classList.remove("hidden");
-          hideAlert();
-        } else {
-          showAlert(serverMsg(r.data), false);
-        }
-      }).catch(function () { showAlert(t("generic_fail"), false); });
-    });
-    document.getElementById("rgBack").addEventListener("click", function () {
-      document.getElementById("regStep2").classList.add("hidden");
-      document.getElementById("regStep1").classList.remove("hidden");
-    });
-    document.getElementById("rgComplete").addEventListener("click", function () {
-      var p1 = document.getElementById("rgPwd").value;
-      var p2 = document.getElementById("rgPwd2").value;
-      clearErr("rgPwd", "rgPwdErr"); clearErr("rgPwd2", "rgPwd2Err");
-      if (!p1 || p1.length < 8 || p1.length > 72) { fieldErr("rgPwd", "rgPwdErr", t("v_pwd_len")); return; }
-      if (p1 !== p2) { fieldErr("rgPwd2", "rgPwd2Err", t("v_pwd_match")); return; }
-      post("/auth/register/complete", {
-        ticket: regState.ticket, password: p1,
-        deviceHash: deviceId(), deviceName: "Website", platform: "website"
-      }).then(function (r) {
-        if (r.ok && r.data.accessToken) {
-          saveSession(r.data);
-          finishAuth(t("reg_ok"));
-        } else {
-          showAlert(serverMsg(r.data), false);
-        }
-      }).catch(function () { showAlert(t("generic_fail"), false); });
-    });
+    document.getElementById("rgComplete").addEventListener("click", doRegister);
     applyTexts();
   }
   function applyTexts() {
@@ -262,9 +216,9 @@
     set("tabLogin", t("tab_login")); set("tabRegister", t("tab_register"));
     set("googleBtnTxt", t("google_btn")); set("orDiv", t("or"));
     set("liSubmit", t("do_login")); set("liGetCode", t("get_code")); set("liDualHint", t("dual_hint"));
-    set("regNote", t("reg_note")); set("regStep1Note", t("reg_step1_note")); set("regStep2Note", t("reg_step2_note"));
-    set("rgSendCode", t("send_code")); set("rgVerify", t("verify_next"));
-    set("rgComplete", t("complete_reg")); set("rgBack", t("back"));
+    set("regNote", t("reg_note")); set("regFormNote", t("reg_form_note"));
+    set("rgSendCode", t("send_code"));
+    set("rgComplete", t("complete_reg"));
     ph("liEmail", t("email_ph")); ph("liPassword", t("password_ph")); ph("liCode", t("code_ph"));
     ph("rgEmail", t("email_ph")); ph("rgCode", t("code_ph"));
     ph("rgPwd", t("pwd_set_ph")); ph("rgPwd2", t("pwd_confirm_ph"));
@@ -297,6 +251,49 @@
     if (e) e.classList.remove("show");
   }
   function validEmail(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v || ""); }
+
+  // 注册一步式提交：前端依次验码换 ticket → 用 ticket 设密码完成注册，
+  // 对用户呈现为一次提交；任一步出错都在对应字段下标错，已填内容不清空。
+  function doRegister() {
+    var email = document.getElementById("rgEmail").value.trim();
+    var code = document.getElementById("rgCode").value.trim();
+    var p1 = document.getElementById("rgPwd").value;
+    var p2 = document.getElementById("rgPwd2").value;
+    clearErr("rgEmail", "rgEmailErr"); clearErr("rgCode", "rgCodeErr");
+    clearErr("rgPwd", "rgPwdErr"); clearErr("rgPwd2", "rgPwd2Err");
+    if (!validEmail(email)) { fieldErr("rgEmail", "rgEmailErr", t("v_email")); return; }
+    if (!code) { fieldErr("rgCode", "rgCodeErr", t("v_code")); return; }
+    if (!p1 || p1.length < 8 || p1.length > 72) { fieldErr("rgPwd", "rgPwdErr", t("v_pwd_len")); return; }
+    if (p1 !== p2) { fieldErr("rgPwd2", "rgPwd2Err", t("v_pwd_match")); return; }
+    var btn = document.getElementById("rgComplete");
+    btn.disabled = true;
+    var done = function () { btn.disabled = false; };
+    post("/auth/register/verify", { email: email, code: code }).then(function (r) {
+      if (!r.ok || !r.data.ticket) {
+        var msg = serverMsg(r.data);
+        if (/邮箱|email/i.test(msg)) fieldErr("rgEmail", "rgEmailErr", msg);
+        else fieldErr("rgCode", "rgCodeErr", msg);
+        done();
+        return;
+      }
+      regState.email = email;
+      post("/auth/register/complete", {
+        ticket: r.data.ticket, password: p1,
+        deviceHash: deviceId(), deviceName: "Website", platform: "website"
+      }).then(function (r2) {
+        done();
+        if (r2.ok && r2.data.accessToken) {
+          saveSession(r2.data);
+          finishAuth(t("reg_ok"));
+        } else {
+          var msg2 = serverMsg(r2.data);
+          if (/密码|password/i.test(msg2)) fieldErr("rgPwd", "rgPwdErr", msg2);
+          else if (/验证|过期|ticket|code/i.test(msg2)) fieldErr("rgCode", "rgCodeErr", msg2);
+          else showAlert(msg2, false);
+        }
+      }).catch(function () { done(); showAlert(t("generic_fail"), false); });
+    }).catch(function () { done(); showAlert(t("generic_fail"), false); });
+  }
 
   function doLogin() {
     var email = document.getElementById("liEmail").value.trim();
