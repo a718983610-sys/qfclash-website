@@ -1,0 +1,36 @@
+EXTRA-PASS KAT XEdDSA fixed-vector signature byte-identical JS vs Dart sign() — js=273eafaf0ce40c60e90ad18b4feb8e62… dart=273eafaf0ce40c60e90ad18b4feb8e62… len=64/64
+EXTRA-PASS KAT X25519 public key byte-identical JS vs Dart generateKeyPairFromPrivate — pub=07a37cbc142093c8b755dc1b10e86cb426374ad16aa853ed0bdfc0b2b86d1c7c
+PASS XEdDSA spec-sign -> dart verify (8/8)
+PASS XEdDSA dart-sign -> spec verify (8/8)
+PASS XEdDSA tampered sig rejected by spec verify
+EXTRA-PASS App bundle mirror fields byte-identical (Ed25519==X25519) — identity=EebkYMgJ905tgySY… opkCount=100 firstOpkId=0
+PASS S1 dart decrypts spec prekey message — got="你好，这是网页端原型发出的第一条消息。"
+PASS S1b second message still prekey-wrapped before ack — type=3
+PASS S1b dart decrypts second prekey message — got="第二条（握手未确认，仍应为 type=3 包裹）"
+EXTRA-PASS Dart envelope: type byte(2=Bob reply) + version byte 0x33 + nonce 16B — type=2 ver=0x33 nonceLen=16
+PASS S2 spec decrypts dart reply 1 — got="收到，我是参考实现这边的回复一。"
+PASS S2 spec decrypts dart reply 2 — got="参考实现回复二。"
+PASS S2b after ack, spec sends plain signal message — type=2
+PASS S2b dart decrypts spec message 3 — got="网页端在收到回复后的第三条（发送链应已轮换）。"
+PASS S2c dart recv #1 — got="乱序一"
+PASS S2c dart recv #3 (skip) — got="乱序三"
+PASS S2c dart recv #2 (skipped key) — got="乱序二"
+PASS S2d spec recv #1 — got="反向乱序一"
+PASS S2d spec recv #3 (skip) — got="反向乱序三"
+PASS S2d spec recv #2 (skipped key) — got="反向乱序二"
+PASS S2e duplicate message rejected by spec
+EXTRA-PASS Dart duplicate message rejected (reverse direction)
+EXTRA-PASS Dart-initiated prekey envelope type=3 version=0x33 — type=3 ver=0x33
+PASS S1R spec decrypts dart-initiated prekey message — got="参考实现主动发起的握手消息。"
+PASS S1R dart decrypts spec reply — got="spec 端对参考实现握手的回复。"
+PASS S3 dart-bob decrypts — got="spec 对 spec 第一条。"
+PASS S3 dart-alice decrypts reply — got="spec 对 spec 回复。"
+PASS S3b no-OPK handshake decrypts — got="无一次性预钥的第一条。"
+PASS S4a tampered ciphertext rejected
+PASS S4b tampered ciphertext rejected by spec (no-session path)
+PASS S4b untampered still decrypts by dart — got="完整性校验样本"
+EXTRA-PASS Dart in-session tampered ciphertext rejected by MAC
+PASS EXTRA untampered second sample still decrypts by dart — got="完整性校验样本二"
+PASS S4c forged signed-prekey signature rejected at bundle processing — InvalidKeyException - Invalid signature on device key!
+ASSERTIONS total=27 failures=0
+ALL_PASS

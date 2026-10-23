@@ -1,0 +1,10 @@
+{
+  "name": "qf-webapp-proto",
+  "private": true,
+  "type": "module",
+  "description": "QFClash 网页版聊天加密互通原型（X3DH + 双棘轮，按 App 端 libsignal_protocol_dart 0.8.2 参数复刻）",
+  "dependencies": {
+    "@noble/curves": "^1.9.0",
+    "@signalapp/libsignal-client": "0.57.1"
+  }
+}

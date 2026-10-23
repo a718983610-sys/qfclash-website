@@ -35,6 +35,12 @@ const I18N = {
     mod_post: "您的帖子未通过内容审核。审核结果：{x}。请修改内容后重新提交。",
     mod_reply: "您的回复未通过内容审核。审核结果：{x}。请修改内容后重新提交。",
     reply_count: "{n} 条回复",
+    report_btn: "举报",
+    report_ok: "举报已提交，感谢您的反馈。",
+    report_already: "您已举报过该帖子，无需重复举报。",
+    mute_perm: "您的论坛发言已被永久限制。如有疑问，请发送邮件至 a718983610@gmail.com 申诉。",
+    mute_timed: "您的论坛发言已被限制，解除时间：{x}。如有疑问，请发送邮件至 a718983610@gmail.com 申诉。",
+    announce_admin_only: "公告板块仅管理员可发布帖子。",
     footer_lic: "QFClash 基于开源项目 FlClash 与 mihomo 内核开发，源代码以 GNU 通用公共许可证第三版（GPL-3.0）发布。FlClash、mihomo 等开源组件的权利归各自作者所有，并适用其随附许可证。"
   },
   en: {
@@ -68,6 +74,12 @@ const I18N = {
     mod_post: "Your post did not pass content review. Review result: {x}. Please revise the content and submit again.",
     mod_reply: "Your reply did not pass content review. Review result: {x}. Please revise the content and submit again.",
     reply_count: "{n} replies",
+    report_btn: "Report",
+    report_ok: "Your report has been submitted. Thank you for your feedback.",
+    report_already: "You have already reported this post.",
+    mute_perm: "Your forum posting privileges have been permanently restricted. If you wish to appeal, please email a718983610@gmail.com.",
+    mute_timed: "Your forum posting privileges are restricted until {x}. If you wish to appeal, please email a718983610@gmail.com.",
+    announce_admin_only: "Only administrators can post in the Announcements board.",
     footer_lic: "QFClash is developed from the open-source FlClash project and the mihomo core, and its source code is released under the GNU General Public License v3.0 (GPL-3.0). FlClash, mihomo, and other open-source components remain the property of their respective authors and are subject to their accompanying licenses."
   }
 };
@@ -102,7 +114,24 @@ function fmtTime(v) {
   return new Date(ms).toLocaleString(lang === "en" ? "en-US" : "zh-CN", { hour12: false });
 }
 function getToken() { return window.QFAuth ? QFAuth.token() : ""; }
-function getNick() { try { return localStorage.getItem("qf_nickname") || ""; } catch (e) { return ""; } }
+function getNick() {
+  try { return localStorage.getItem("qf_nickname") || sessionStorage.getItem("qf_nickname") || ""; } catch (e) { return ""; }
+}
+// 作者名统一读服务端嵌套 author:{userId,name}（A-30）。
+function authorOf(obj) {
+  if (!obj) return "";
+  if (obj.author && typeof obj.author === "object" && obj.author.name) return obj.author.name;
+  return obj.authorName || obj.nickname || "";
+}
+function errCode(data) { return data && (data.code || data.error) ? (data.code || data.error) : ""; }
+// 提交被拒分支（B-27）：按错误码分流——禁言出全文、公告板块出专属提示，其余才走审核大类模板。
+function submitErrorText(data, kind) {
+  const code = errCode(data);
+  if (code === "FORUM_MUTED") return serverMsg(data);
+  if (code === "FORUM_BOARD_FORBIDDEN") return t("announce_admin_only");
+  if (code === "FORUM_TOO_NEW") return serverMsg(data);
+  return t(kind === "reply" ? "mod_reply" : "mod_post", { x: violationText(data) });
+}
 function isPending(obj) {
   if (!obj) return false;
   const s = obj.status || obj.state || obj.reviewStatus || "";
@@ -154,6 +183,8 @@ function applyLang() {
   document.documentElement.lang = lang === "en" ? "en" : "zh-CN";
   document.title = lang === "en" ? "QFClash Forum" : "QFClash 论坛";
   document.getElementById("langToggle").textContent = lang === "en" ? "中文" : "EN";
+  const rb2 = document.getElementById("reportBtn");
+  if (rb2) rb2.textContent = t("report_btn");
   if (window.QFAuth) QFAuth.setLang(lang);
 }
 
@@ -237,9 +268,13 @@ function renderBoards() {
     });
   });
   const sel = document.getElementById("postBoard");
-  sel.innerHTML = boards.map(function (b) {
+  const prev = sel.value;
+  // B-27：发帖板块下拉剔除 announcements（公告仅管理员可发），列表筛选仍保留该板块。
+  sel.innerHTML = boards.filter(function (b) { return String(boardId(b)) !== "announcements"; }).map(function (b) {
     return '<option value="' + esc(String(boardId(b))) + '">' + esc(boardName(b)) + "</option>";
   }).join("");
+  if (prev && prev !== "announcements" && sel.querySelector('option[value="' + prev + '"]')) sel.value = prev;
+  if (prev === "announcements") showAlert("composeAlert", t("announce_admin_only"), false);
 }
 async function loadPosts() {
   const area = document.getElementById("postArea");
@@ -247,7 +282,9 @@ async function loadPosts() {
   try {
     const q = new URLSearchParams();
     if (currentBoard) q.set("board", currentBoard);
-    q.set("page", String(page));
+    // B-28：服务端只认 limit/offset，按页换算偏移。
+    q.set("limit", String(PAGE_SIZE));
+    q.set("offset", String((page - 1) * PAGE_SIZE));
     const headers = getToken() ? { auth: true } : {};
     const r = await api("/forum/posts?" + q.toString(), headers);
     const list = pickArr(r.data);
@@ -257,7 +294,7 @@ async function loadPosts() {
       area.innerHTML = '<div class="empty-box">' + esc(t("empty_posts")) + "</div>";
     } else {
       area.innerHTML = '<div class="post-list">' + list.map(function (p) {
-        const author = p.authorName || p.nickname || p.author || "";
+        const author = authorOf(p);
         const rc = p.replyCount !== undefined ? p.replyCount : (p.replies ? p.replies.length : 0);
         return '<div class="post-row" data-id="' + esc(String(p.id)) + '">' +
           '<span class="ttl">' + esc(p.title || "") + reviewBadge(p) + "</span>" +
@@ -289,7 +326,7 @@ async function openPost(id) {
     if (!r.ok) throw new Error("bad");
     const post = r.data.post || r.data.data || r.data;
     const replies = Array.isArray(r.data.replies) ? r.data.replies : (post.replies || []);
-    const author = post.authorName || post.nickname || post.author || "";
+    const author = authorOf(post);
     card.innerHTML =
       "<h2>" + esc(post.title || "") + reviewBadge(post) + "</h2>" +
       '<p class="meta">' + esc(author) + " · " + esc(fmtTime(post.createdAt || post.created_at)) + "</p>" +
@@ -299,7 +336,7 @@ async function openPost(id) {
       rl.innerHTML = '<p style="color:var(--gray);font-size:14.5px">' + esc(t("empty_replies")) + "</p>";
     } else {
       rl.innerHTML = replies.map(function (rp) {
-        const a = rp.authorName || rp.nickname || rp.author || "";
+        const a = authorOf(rp);
         return '<div class="reply"><p class="meta">' + esc(a) + " · " + esc(fmtTime(rp.createdAt || rp.created_at)) + reviewBadge(rp) + '</p><div class="body">' + esc(rp.content || rp.body || "") + "</div></div>";
       }).join("");
     }
@@ -313,6 +350,7 @@ async function openPost(id) {
 async function submitPost() {
   if (!getToken()) { showAlert("composeAlert", t("need_login"), false); openLogin(); return; }
   const board = document.getElementById("postBoard").value;
+  if (board === "announcements") { showAlert("composeAlert", t("announce_admin_only"), false); return; }
   const title = document.getElementById("postTitle").value.trim();
   const content = document.getElementById("postContent").value.trim();
   if (!title || !content) { showAlert("composeAlert", t("fill_both"), false); return; }
@@ -321,16 +359,29 @@ async function submitPost() {
   try {
     const r = await api("/forum/posts", { method: "POST", auth: true, body: { board: board, title: title, content: content } });
     if (r.ok) {
-      const pending = isPending(r.data) || isPending(r.data.post || {});
-      showAlert("composeAlert", pending ? t("post_pending") : t("post_ok"), true);
-      document.getElementById("postTitle").value = "";
-      document.getElementById("postContent").value = "";
-      if (board) currentBoard = String(board);
-      page = 1;
-      renderBoards();
-      setTimeout(function () { showView("list"); loadPosts(); }, 700);
+      // A-32：先看 data.status——rejected 显示大类提示且不清空表单；pending 显示待审提示。
+      const status = String((r.data && r.data.status) || (r.data.post && r.data.post.status) || "");
+      if (status === "rejected") {
+        showAlert("composeAlert", t("mod_post", { x: violationText(r.data) }), false);
+      } else if (status === "pending" || isPending(r.data) || isPending(r.data.post || {})) {
+        showAlert("composeAlert", t("post_pending"), true);
+        document.getElementById("postTitle").value = "";
+        document.getElementById("postContent").value = "";
+        if (board) currentBoard = String(board);
+        page = 1;
+        renderBoards();
+        setTimeout(function () { showView("list"); loadPosts(); }, 700);
+      } else {
+        showAlert("composeAlert", t("post_ok"), true);
+        document.getElementById("postTitle").value = "";
+        document.getElementById("postContent").value = "";
+        if (board) currentBoard = String(board);
+        page = 1;
+        renderBoards();
+        setTimeout(function () { showView("list"); loadPosts(); }, 700);
+      }
     } else if (r.status === 400 || r.status === 403 || r.status === 422) {
-      showAlert("composeAlert", t("mod_post", { x: violationText(r.data) }), false);
+      showAlert("composeAlert", submitErrorText(r.data, "post"), false);
     } else if (r.status === 401) {
       showAlert("composeAlert", t("need_login"), false);
       openLogin();
@@ -351,12 +402,20 @@ async function submitReply() {
   try {
     const r = await api("/forum/posts/" + encodeURIComponent(currentPostId) + "/replies", { method: "POST", auth: true, body: { content: content } });
     if (r.ok) {
-      const pending = isPending(r.data) || isPending(r.data.reply || {});
-      document.getElementById("replyContent").value = "";
-      showAlert("replyAlert", pending ? t("reply_pending") : t("reply_ok"), true);
-      if (!pending) openPost(currentPostId);
+      // A-32：先看 data.status——rejected 显示大类提示且不清空表单；pending 显示待审提示。
+      const status = String((r.data && r.data.status) || (r.data.reply && r.data.reply.status) || "");
+      if (status === "rejected") {
+        showAlert("replyAlert", t("mod_reply", { x: violationText(r.data) }), false);
+      } else if (status === "pending" || isPending(r.data) || isPending(r.data.reply || {})) {
+        document.getElementById("replyContent").value = "";
+        showAlert("replyAlert", t("reply_pending"), true);
+      } else {
+        document.getElementById("replyContent").value = "";
+        showAlert("replyAlert", t("reply_ok"), true);
+        openPost(currentPostId);
+      }
     } else if (r.status === 400 || r.status === 403 || r.status === 422) {
-      showAlert("replyAlert", t("mod_reply", { x: violationText(r.data) }), false);
+      showAlert("replyAlert", submitErrorText(r.data, "reply"), false);
     } else if (r.status === 401) {
       openLogin();
     } else {
@@ -368,12 +427,61 @@ async function submitReply() {
   btn.disabled = false;
 }
 
+// ---------- 举报（B-29） ----------
+async function reportCurrentPost() {
+  if (!currentPostId) return;
+  if (!getToken()) { openLogin(); return; }
+  const btn = document.getElementById("reportBtn");
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api("/forum/posts/" + encodeURIComponent(currentPostId) + "/report", { method: "POST", auth: true, body: {} });
+    if (r.ok && r.data && r.data.alreadyReported) {
+      showAlert("detailAlert", t("report_already"), true);
+    } else if (r.ok) {
+      showAlert("detailAlert", t("report_ok"), true);
+    } else if (r.status === 401) {
+      openLogin();
+    } else {
+      showAlert("detailAlert", serverMsg(r.data), false);
+    }
+  } catch (e) {
+    showAlert("detailAlert", t("generic_fail"), false);
+  }
+  if (btn) btn.disabled = false;
+}
+
+// ---------- 禁言状态常驻展示（B-27：加载即调 /forum/profile） ----------
+async function loadForumProfile() {
+  const banner = document.getElementById("muteBanner");
+  if (!banner) return;
+  if (!getToken()) { banner.className = "alert"; banner.textContent = ""; return; }
+  try {
+    const r = await api("/forum/profile", { auth: true });
+    if (!r.ok || !r.data) { banner.className = "alert"; return; }
+    const d = r.data.data || r.data;
+    if (d.mutePermanent) {
+      banner.textContent = t("mute_perm");
+      banner.className = "alert show err";
+    } else if (d.muted && d.muteUntil) {
+      banner.textContent = t("mute_timed", { x: fmtTime(d.muteUntil) });
+      banner.className = "alert show err";
+    } else {
+      banner.className = "alert";
+      banner.textContent = "";
+    }
+  } catch (e) { banner.className = "alert"; }
+}
+
 // ---------- 初始化 ----------
 (function init() {
   applyLang();
   renderUserbar();
+  loadForumProfile();
+  const rb = document.getElementById("reportBtn");
+  if (rb) { rb.textContent = t("report_btn"); rb.addEventListener("click", reportCurrentPost); }
   window.addEventListener("qf-auth-change", function () {
     renderUserbar();
+    loadForumProfile();
     if (!document.getElementById("viewMain").classList.contains("hidden")) loadPosts();
   });
   document.getElementById("langToggle").addEventListener("click", function () {

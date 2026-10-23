@@ -33,8 +33,10 @@
     <div class="userbar" id="userbar"></div>
   </div>
   <p class="sec-sub" style="text-align:left;margin:0 0 18px" data-i18n="forum_sub">本论坛为 QFClash 用户交流与互助社区。发言请友善文明，并遵守法律法规与社区规范。</p>
+  <p class="sec-sub" style="text-align:left;margin:0 0 18px">增强功能（我的帖子与评价、数据分析、营地、千赞奖励申请）请使用<a href="./webapp/">网页版</a>或 QFClash 应用。</p>
 
   <div class="alert" id="alertBox"></div>
+  <div class="alert" id="muteBanner"></div>
 
   <div id="viewMain">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">
@@ -50,7 +52,9 @@
 
   <div id="viewDetail" class="hidden">
     <button class="small-btn" id="backBtn" data-i18n="back_list">← 返回帖子列表</button>
+    <button class="small-btn" id="reportBtn" style="margin-left:8px">举报</button>
     <div style="height:14px"></div>
+    <div class="alert" id="detailAlert"></div>
     <div class="detail-card" id="detailCard"></div>
     <h3 style="margin:26px 0 6px" data-i18n="replies">回复</h3>
     <div id="replyList"></div>
@@ -109,7 +113,7 @@
   </div>
 </footer>
 
-<script src="assets/auth.js?v=20261023f"></script>
-<script src="assets/forum.js?v=20261023f"></script>
+<script src="assets/auth.js?v=20261023h"></script>
+<script src="assets/forum.js?v=20261023g"></script>
 </body>
 </html>

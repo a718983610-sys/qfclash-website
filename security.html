@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QFClash 安全中心</title>
+<meta name="description" content="QFClash 安全中心 — 修改密码、更换邮箱、登录设备、通行密钥与注销账号。">
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/style.css?v=20261023d">
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="index.html"><img src="assets/icon.png" alt="QFClash">QFClash</a>
+    <nav>
+      <a href="index.html#about" data-i18n="nav_about">产品介绍</a>
+      <a href="index.html#download" data-i18n="nav_download">下载</a>
+      <a href="index.html#points" data-i18n="nav_points">积分规则</a>
+      <a href="agreement.html" data-i18n="nav_agreement">用户协议</a>
+    </nav>
+    <div class="nav-auth" id="navAuth"></div>
+    <div class="nav-side">
+      <a class="nav-forum" href="forum.html" data-i18n="nav_forum">论坛</a>
+      <button class="lang-btn" id="langToggle" type="button">EN</button>
+    </div>
+  </div>
+</header>
+
+<div class="wrap" style="padding-bottom:60px;max-width:860px">
+  <div class="forum-head">
+    <h1 data-i18n="sec_title">安全中心</h1>
+  </div>
+  <p class="sec-sub" style="text-align:left;margin:0 0 18px" data-i18n="sec_sub">在此管理您的账号安全：修改密码、更换绑定邮箱、查看并下线登录设备、管理通行密钥，以及申请注销账号。</p>
+
+  <div class="alert" id="secAlert"></div>
+  <div class="alert" id="banBanner"></div>
+
+  <div id="needLogin" class="empty-box hidden" data-i18n="need_login">请先登录后再使用安全中心。</div>
+
+  <div id="secMain" class="hidden">
+    <div class="detail-card" style="margin-bottom:18px">
+      <h3 data-i18n="acct_title">账号概览</h3>
+      <p class="meta" id="acctInfo" style="margin-top:8px"></p>
+      <p class="meta hidden" id="deletingInfo" style="color:#8C1D1D"></p>
+      <button class="small-btn hidden" id="cancelDeleteBtn" type="button" data-i18n="cancel_delete">撤销注销</button>
+      <div id="usernameSetup" class="hidden" style="margin-top:16px;border-top:1px solid var(--line);padding-top:14px">
+        <div class="alert" id="usernameAlert"></div>
+        <label data-i18n="username_setup">补设账户 ID</label>
+        <input id="newUsername" type="text" autocomplete="username" data-i18n-ph="username_ph" placeholder="账户 ID（至少 8 位，字母与数字，且必须包含字母）">
+        <p class="hint" data-i18n="username_note">账户ID一经设置不可更改，请谨慎填写。</p>
+        <button class="btn-blue" id="usernameSubmit" type="button" data-i18n="username_submit">确认设置</button>
+      </div>
+    </div>
+
+    <div class="compose" style="margin-bottom:18px">
+      <h3 data-i18n="pwd_title">修改密码</h3>
+      <div class="alert" id="pwdAlert"></div>
+      <label data-i18n="verify_way">身份验证（任选其一）</label>
+      <input id="curPwd" type="password" autocomplete="current-password" data-i18n-ph="cur_pwd_ph" placeholder="当前密码">
+      <div class="row" style="display:flex;gap:10px">
+        <input id="pwdCode" type="text" style="flex:1" data-i18n-ph="code_ph" placeholder="邮箱验证码">
+        <button class="small-btn" id="pwdSendCode" type="button" data-i18n="send_code">发送验证码</button>
+      </div>
+      <button class="small-btn" id="pwdPasskey" type="button" data-i18n="use_passkey">使用通行密钥验证</button>
+      <span class="hint" id="pwdReauthState" style="margin-left:8px"></span>
+      <label data-i18n="new_pwd">新密码</label>
+      <input id="newPwd" type="password" autocomplete="new-password" data-i18n-ph="new_pwd_ph" placeholder="请设置新密码（8 至 72 位）">
+      <input id="newPwd2" type="password" autocomplete="new-password" data-i18n-ph="new_pwd2_ph" placeholder="请再次输入新密码">
+      <button class="btn-blue" id="pwdSubmit" type="button" data-i18n="pwd_submit">确认修改密码</button>
+    </div>
+
+    <div class="compose" style="margin-bottom:18px">
+      <h3 data-i18n="email_title">更换绑定邮箱</h3>
+      <div class="alert" id="emailAlert"></div>
+      <label data-i18n="new_email">新邮箱</label>
+      <input id="newEmail" type="email" autocomplete="email" data-i18n-ph="new_email_ph" placeholder="请输入新邮箱地址">
+      <div class="row" style="display:flex;gap:10px">
+        <input id="oldCode" type="text" style="flex:1" data-i18n-ph="old_code_ph" placeholder="当前邮箱验证码">
+        <button class="small-btn" id="oldCodeBtn" type="button" data-i18n="send_old_code">向当前邮箱发送</button>
+      </div>
+      <div class="row" style="display:flex;gap:10px">
+        <input id="newCode" type="text" style="flex:1" data-i18n-ph="new_code_ph" placeholder="新邮箱验证码">
+        <button class="small-btn" id="newCodeBtn" type="button" data-i18n="send_new_code">向新邮箱发送</button>
+      </div>
+      <button class="btn-blue" id="emailSubmit" type="button" data-i18n="email_submit">确认更换邮箱</button>
+    </div>
+
+    <div class="compose" style="margin-bottom:18px">
+      <h3 data-i18n="protect_title">环境异常双重验证</h3>
+      <p class="hint" data-i18n="protect_hint">开启后，在新设备或异常登录环境下登录时，需完成邮箱验证码校验后方可登录。登录国家与以往明显不同（登录国家突变）同样属于触发情形，出国旅行时触发此验证属于正常现象。已经通过验证的设备不会因同一环境因素被反复拦截。关闭此开关后，强制安全复核仍然有效：在刷新令牌被重用、短时间多次登录失败等高风险情形下，系统仍会要求重新验证身份，该复核不可关闭。</p>
+      <label style="display:flex;align-items:center;gap:8px;font-size:14.5px;cursor:pointer">
+        <input id="loginProtection" type="checkbox" style="width:auto;margin:0">
+        <span data-i18n="protect_on">开启环境异常双重验证</span>
+      </label>
+    </div>
+
+    <div class="compose" style="margin-bottom:18px">
+      <h3 data-i18n="devices_title">登录设备</h3>
+      <div class="alert" id="devAlert"></div>
+      <div id="deviceList"></div>
+    </div>
+
+    <div class="compose" style="margin-bottom:18px">
+      <h3 data-i18n="passkey_title">通行密钥</h3>
+      <div class="alert" id="pkAlert"></div>
+      <div id="passkeyList"></div>
+      <label data-i18n="pk_name">新通行密钥名称</label>
+      <input id="pkName" type="text" maxlength="50" data-i18n-ph="pk_name_ph" placeholder="例如：我的手机">
+      <label data-i18n="verify_way">身份验证（任选其一）</label>
+      <input id="pkPwd" type="password" autocomplete="current-password" data-i18n-ph="cur_pwd_ph" placeholder="当前密码">
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="small-btn" id="pkPasskey" type="button" data-i18n="use_passkey">使用通行密钥验证</button>
+        <button class="btn-blue" id="pkCreate" type="button" data-i18n="pk_create">创建通行密钥</button>
+      </div>
+      <span class="hint" id="pkReauthState"></span>
+    </div>
+
+    <div class="compose" style="margin-bottom:18px;border-color:#F5C2C2">
+      <h3 data-i18n="delete_title">注销账号</h3>
+      <div class="alert" id="delAlert"></div>
+      <p class="hint" data-i18n="delete_warn">注销申请提交后有 7 天冷静期，冷静期内登录即可撤销；冷静期届满后，服务器账号数据将被删除且不可恢复。注销后账号积分将清零，未使用的兑换码将作废。提交注销前须完成身份复核。</p>
+      <label data-i18n="verify_way">身份验证（任选其一）</label>
+      <input id="delPwd" type="password" autocomplete="current-password" data-i18n-ph="cur_pwd_ph" placeholder="当前密码">
+      <button class="small-btn" id="delPasskey" type="button" data-i18n="use_passkey">使用通行密钥验证</button>
+      <span class="hint" id="delReauthState" style="margin-left:8px"></span>
+      <label style="display:flex;align-items:flex-start;gap:8px;font-size:14.5px;cursor:pointer;margin:12px 0">
+        <input id="delConfirm" type="checkbox" style="width:auto;margin-top:5px">
+        <span data-i18n="delete_confirm">我已了解上述后果，确认申请注销账号。</span>
+      </label>
+      <button class="btn-blue" id="delSubmit" type="button" style="background:#C81E1E" data-i18n="delete_submit">提交注销申请</button>
+    </div>
+  </div>
+
+  <div class="compose" id="appeal" style="margin-top:18px">
+    <h3 data-i18n="appeal_title">封禁申诉</h3>
+    <div class="alert" id="appealAlert"></div>
+    <p class="hint" data-i18n="appeal_hint">如您的账号被封禁，可在此提交申诉。提交前请填写账户 ID 或绑定邮箱与登录密码以核验身份。</p>
+    <label data-i18n="appeal_id">账户 ID 或邮箱</label>
+    <input id="apId" type="text" autocomplete="username">
+    <label data-i18n="appeal_pwd">登录密码</label>
+    <input id="apPwd" type="password" autocomplete="current-password">
+    <label data-i18n="appeal_content">申诉内容</label>
+    <textarea id="apContent" rows="4" maxlength="2000"></textarea>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="small-btn" id="apQuota" type="button" data-i18n="appeal_quota">查询剩余申诉次数</button>
+      <button class="btn-blue" id="apSubmit" type="button" data-i18n="appeal_submit">提交申诉</button>
+    </div>
+  </div>
+
+  <div class="compose" id="recovery" style="margin-top:18px">
+    <h3 data-i18n="rec_title">找回申诉（邮箱不可用时）</h3>
+    <div class="alert" id="recAlert"></div>
+    <p class="hint" data-i18n="rec_hint">如您的绑定邮箱已无法使用、无法接收验证码，可在此提交人工找回申诉。提交后请妥善保存申诉编号，可凭申诉编号与账户标识查询处理状态。</p>
+    <label data-i18n="rec_account">账户 ID 或邮箱</label>
+    <input id="rcAccount" type="text" autocomplete="username">
+    <label data-i18n="rec_email">绑定邮箱（用于核对身份）</label>
+    <input id="rcEmail" type="email" autocomplete="email" data-i18n-ph="email_ph" placeholder="邮箱地址">
+    <p class="hint" data-i18n="rec_devices_hint">填写账户标识与绑定邮箱并核对一致后，可查看该账户的登录设备，辅助您填写曾用机型与常用登录地点。</p>
+    <div style="margin-bottom:6px"><button class="small-btn" id="rcViewDevices" type="button" data-i18n="rec_devices_btn">查看我的登录设备</button></div>
+    <div id="rcDevices"></div>
+    <label data-i18n="rec_oldpw">曾经设置过的密码（最多 3 个）</label>
+    <input id="rcOldPw1" type="password" autocomplete="off" data-i18n-ph="rec_oldpw_ph" placeholder="曾经设置过的密码">
+    <input id="rcOldPw2" type="password" autocomplete="off" data-i18n-ph="rec_oldpw_ph" placeholder="曾经设置过的密码">
+    <input id="rcOldPw3" type="password" autocomplete="off" data-i18n-ph="rec_oldpw_ph" placeholder="曾经设置过的密码">
+    <label data-i18n="rec_models">曾用设备机型（每行一个，最多 5 个）</label>
+    <textarea id="rcModels" rows="3" maxlength="600" data-i18n-ph="rec_models_ph" placeholder="例如：iPhone 15 Pro Max"></textarea>
+    <label data-i18n="rec_locations">常用登录地点（每行一个，最多 5 个）</label>
+    <textarea id="rcLocations" rows="3" maxlength="600" data-i18n-ph="rec_locations_ph" placeholder="例如：中国 江西 南昌"></textarea>
+    <label data-i18n="rec_friend">好友验证（可选）</label>
+    <select id="rcFriend"></select>
+    <div style="margin:6px 0"><button class="small-btn" id="rcLoadFriends" type="button" data-i18n="rec_friend_load">加载好友候选</button></div>
+    <p class="hint" id="rcFriendHint"></p>
+    <label data-i18n="rec_note">补充说明（可选）</label>
+    <textarea id="rcNote" rows="3" maxlength="1000"></textarea>
+    <div><button class="btn-blue" id="rcSubmit" type="button" data-i18n="rec_submit">提交找回申诉</button></div>
+    <div style="border-top:1px solid var(--line);margin-top:18px;padding-top:14px">
+      <h3 data-i18n="rec_status_title" style="margin-bottom:8px">查询申诉状态</h3>
+      <div class="alert" id="recStatusAlert"></div>
+      <label data-i18n="rec_status_id">申诉编号</label>
+      <input id="rcStatusId" type="text" inputmode="numeric">
+      <label data-i18n="rec_account">账户 ID 或邮箱</label>
+      <input id="rcStatusAccount" type="text" autocomplete="username">
+      <div><button class="small-btn" id="rcStatusBtn" type="button" data-i18n="rec_status_btn">查询状态</button></div>
+      <p class="hint" id="rcStatusResult" style="margin-top:10px"></p>
+      <div id="rcResetWrap" class="hidden">
+        <label data-i18n="new_pwd">新密码</label>
+        <input id="rcNewPwd" type="password" autocomplete="new-password" data-i18n-ph="new_pwd_ph" placeholder="请设置新密码（8 至 72 位）">
+        <input id="rcNewPwd2" type="password" autocomplete="new-password" data-i18n-ph="new_pwd2_ph" placeholder="请再次输入新密码">
+        <button class="btn-blue" id="rcResetBtn" type="button" data-i18n="rec_reset_submit">凭批准凭证设置新密码</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <span>© 2026 QFClash</span>
+      <span>
+        <a href="index.html" data-i18n="nav_home">首页</a> ·
+        <a href="forum.html" data-i18n="nav_forum">论坛</a> ·
+        <a href="agreement.html" data-i18n="nav_agreement">用户协议</a> ·
+        <a href="privacy.html" data-i18n="nav_privacy">隐私说明</a>
+      </span>
+    </div>
+    <p class="lic" data-i18n="footer_lic">QFClash 基于开源项目 FlClash 与 mihomo 内核开发，源代码以 GNU 通用公共许可证第三版（GPL-3.0）发布。FlClash、mihomo 等开源组件的权利归各自作者所有，并适用其随附许可证。</p>
+  </div>
+</footer>
+
+<script src="assets/auth.js?v=20261023h"></script>
+<script src="assets/security.js?v=20261023c"></script>
+</body>
+</html>

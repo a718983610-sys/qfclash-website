@@ -2,7 +2,7 @@
 const I18N = {
   zh: {
     nav_about: "产品介绍", nav_features: "功能介绍", nav_download: "下载",
-    nav_points: "积分规则", nav_agreement: "用户协议", nav_privacy: "隐私说明", nav_contact: "联系我们", nav_forum: "论坛",
+    nav_points: "积分规则", nav_agreement: "用户协议", nav_privacy: "隐私说明", nav_contact: "联系我们", nav_forum: "论坛", nav_webapp: "网页版",
     fb_title: "在线留言",
     fb_intro: "您也可以直接在此留言，提交后将自动发送至官方邮箱，我们将认真阅读并处理。",
     fb_content_ph: "请填写您的意见或建议（必填，最多 2000 字）",
@@ -56,6 +56,8 @@ const I18N = {
     r6: "登录状态不受限制：登录用户不限使用时长，全部功能完整开放，并可累计积分；访客每日可免费使用 2 小时，且不累计积分。",
     r7: "积分规则如有调整，将在应用内与本页面提前公示。",
     r8: "积分累计不受所在地区影响；如您所在地区暂不支持福利兑换，积分仍可正常累计并保留。",
+    r9: "论坛每日积分：在官方论坛每天发布 1 条帖子或 1 条评论可得 1 分，每天限 1 次；该积分单独计算，不占用每日 8 分的连接积分上限。灌水、刷分内容被驳回或删除的，当日积分取消。",
+    r10: "千赞奖励：您在论坛发布的帖子获赞达到 1000 时，可申请千赞奖励；审核通过后发放 5 分，每个帖子限申请一次。",
     contact_title: "联系与反馈",
     contact_p1: "意见反馈：QFClash 应用内「关于」页设有意见反馈窗口，填写并提交后将自动发送至官方邮箱，无需另行撰写邮件。",
     contact_p2: "联系邮箱：", contact_p3: "官方仓库：",
@@ -64,7 +66,7 @@ const I18N = {
   },
   en: {
     nav_about: "About", nav_features: "Features", nav_download: "Download",
-    nav_points: "Points Rules", nav_agreement: "User Agreement", nav_privacy: "Privacy Notice", nav_contact: "Contact", nav_forum: "Forum",
+    nav_points: "Points Rules", nav_agreement: "User Agreement", nav_privacy: "Privacy Notice", nav_contact: "Contact", nav_forum: "Forum", nav_webapp: "Web App",
     fb_title: "Leave a Message",
     fb_intro: "You may also leave a message here. Submissions are sent automatically to the official email address and will be read and handled with care.",
     fb_content_ph: "Please enter your comments or suggestions (required, up to 2,000 characters)",
@@ -118,6 +120,8 @@ const I18N = {
     r6: "Signed-in status is unrestricted: signed-in users have no time limit, full access to all features, and earn points. Guests may use QFClash free of charge for 2 hours per day and do not earn points.",
     r7: "Any changes to these rules will be announced in advance in the app and on this page.",
     r8: "Points accrue regardless of your region. If welfare redemption is not yet available in your region, your points will continue to accrue and remain in your account.",
+    r9: "Daily forum points: publishing one post or one comment in the official forum earns 1 point per day (once per day). Forum points are counted separately and do not use up the daily 8-point cap for connection time. If a post or comment is rejected or removed for spam or farming, that day's forum point is cancelled.",
+    r10: "1,000-likes reward: when a forum post you published reaches 1,000 likes, you may apply for the milestone reward. After approval, 5 points are granted. Each post may be rewarded once only.",
     contact_title: "Contact & Feedback",
     contact_p1: "Feedback: the \u201CAbout\u201D page in QFClash includes a feedback form. Submissions are sent automatically to the official email address — no separate email is required.",
     contact_p2: "Email: ", contact_p3: "Official repository: ",

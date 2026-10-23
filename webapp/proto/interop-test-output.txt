@@ -1,0 +1,27 @@
+PASS XEdDSA spec-sign -> libsignal verify (8/8)
+PASS XEdDSA libsignal-sign -> spec verify (8/8)
+PASS XEdDSA tampered sig rejected by spec verify
+PASS S1 oracle decrypts spec prekey message — got="你好，这是网页端原型发出的第一条消息。"
+PASS S1b second message still prekey-wrapped before ack — type=3
+PASS S1b oracle decrypts second prekey message — got="第二条（握手未确认，仍应为 type=3 包裹）"
+PASS S2 spec decrypts oracle reply 1 — got="收到，我是参考实现这边的回复一。"
+PASS S2 spec decrypts oracle reply 2 — got="参考实现回复二。"
+PASS S2b after ack, spec sends plain signal message — type=2
+PASS S2b oracle decrypts spec message 3 — got="网页端在收到回复后的第三条（发送链应已轮换）。"
+PASS S2c oracle recv #1 — got="乱序一"
+PASS S2c oracle recv #3 (skip) — got="乱序三"
+PASS S2c oracle recv #2 (skipped key) — got="乱序二"
+PASS S2d spec recv #1 — got="反向乱序一"
+PASS S2d spec recv #3 (skip) — got="反向乱序三"
+PASS S2d spec recv #2 (skipped key) — got="反向乱序二"
+PASS S2e duplicate message rejected by spec
+PASS S1R spec decrypts oracle-initiated prekey message — got="参考实现主动发起的握手消息。"
+PASS S1R oracle decrypts spec reply — got="spec 端对参考实现握手的回复。"
+PASS S3 spec-bob decrypts — got="spec 对 spec 第一条。"
+PASS S3 spec-alice decrypts reply — got="spec 对 spec 回复。"
+PASS S3b no-OPK handshake decrypts — got="无一次性预钥的第一条。"
+PASS S4a tampered ciphertext rejected
+PASS S4b tampered ciphertext rejected by spec (no-session path)
+PASS S4b untampered still decrypts by oracle — got="完整性校验样本"
+PASS S4c forged signed-prekey signature rejected at bundle processing
+ALL_PASS

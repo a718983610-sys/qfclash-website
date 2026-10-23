@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QFClash 网页版</title>
+<link rel="stylesheet" href="assets/app.css?v=20261023a">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script type="importmap">
+{ "imports": {
+  "@noble/curves/ed25519.js": "./vendor/@noble/curves/esm/ed25519.js",
+  "@noble/curves/ed25519": "./vendor/@noble/curves/esm/ed25519.js",
+  "@noble/curves/": "./vendor/@noble/curves/esm/",
+  "@noble/hashes/crypto": "./vendor/@noble/hashes/esm/crypto.js",
+  "@noble/hashes/": "./vendor/@noble/hashes/esm/"
+} }
+</script>
+</head>
+<body>
+<header class="topbar">
+  <button id="hamburger" class="hamburger" type="button" aria-label="打开或关闭侧边菜单" aria-expanded="false">
+    <span></span><span></span><span></span>
+  </button>
+  <div class="brand">QFClash 网页版</div>
+  <div class="topbar-note">网页版提供好友、聊天、论坛、积分兑换与智能客服；连接、节点与订阅功能请使用客户端。</div>
+</header>
+
+<aside id="drawer" class="drawer" aria-hidden="true">
+  <div class="drawer-identity" id="drawerIdentity"></div>
+  <nav class="drawer-nav" id="drawerNav">
+    <a href="#/home" data-route="home">首页</a>
+    <a href="#/points" data-route="points">积分</a>
+    <a href="#/forum" data-route="forum">论坛</a>
+    <a href="#/friends" data-route="friends">好友</a>
+    <a href="#/security" data-route="security">安全中心</a>
+    <a href="#/support" data-route="support">智能客服</a>
+    <a href="#/me" data-route="me">个人资料</a>
+  </nav>
+  <div class="drawer-foot">
+    <button id="logoutBtn" class="logout-btn" type="button" hidden>退出登录</button>
+  </div>
+</aside>
+
+<main id="view" class="view" tabindex="-1"></main>
+
+<footer class="pagefoot">
+  <span>QFClash 网页版 · 与客户端共用同一账号体系</span>
+</footer>
+
+<script type="module" src="assets/crypto-adapter.js?v=20261024a"></script>
+<script src="assets/app.js?v=20261024a"></script>
+</body>
+</html>
