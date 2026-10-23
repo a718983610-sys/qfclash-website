@@ -2,7 +2,7 @@
 const I18N = {
   zh: {
     nav_about: "产品介绍", nav_features: "功能介绍", nav_download: "下载",
-    nav_points: "积分规则", nav_agreement: "用户协议", nav_contact: "联系我们", nav_forum: "论坛",
+    nav_points: "积分规则", nav_agreement: "用户协议", nav_privacy: "隐私说明", nav_contact: "联系我们", nav_forum: "论坛",
     fb_title: "在线留言",
     fb_intro: "您也可以直接在此留言，提交后将自动发送至官方邮箱，我们将认真阅读并处理。",
     fb_content_ph: "请填写您的意见或建议（必填，最多 2000 字）",
@@ -64,7 +64,7 @@ const I18N = {
   },
   en: {
     nav_about: "About", nav_features: "Features", nav_download: "Download",
-    nav_points: "Points Rules", nav_agreement: "User Agreement", nav_contact: "Contact", nav_forum: "Forum",
+    nav_points: "Points Rules", nav_agreement: "User Agreement", nav_privacy: "Privacy Notice", nav_contact: "Contact", nav_forum: "Forum",
     fb_title: "Leave a Message",
     fb_intro: "You may also leave a message here. Submissions are sent automatically to the official email address and will be read and handled with care.",
     fb_content_ph: "Please enter your comments or suggestions (required, up to 2,000 characters)",

@@ -6,7 +6,7 @@ const API = "https://qfclash-account.a718983610.workers.dev";
 const I18N = {
   zh: {
     nav_about: "产品介绍", nav_download: "下载", nav_points: "积分规则", nav_forum: "论坛",
-    nav_agreement: "用户协议", nav_home: "首页",
+    nav_agreement: "用户协议", nav_privacy: "隐私说明", nav_home: "首页",
     forum_title: "QFClash 论坛",
     forum_sub: "本论坛为 QFClash 用户交流与互助社区。发言请友善文明，并遵守法律法规与社区规范。",
     new_post: "发布帖子", prev: "上一页", next: "下一页",
@@ -39,7 +39,7 @@ const I18N = {
   },
   en: {
     nav_about: "About", nav_download: "Download", nav_points: "Points Rules", nav_forum: "Forum",
-    nav_agreement: "User Agreement", nav_home: "Home",
+    nav_agreement: "User Agreement", nav_privacy: "Privacy Notice", nav_home: "Home",
     forum_title: "QFClash Forum",
     forum_sub: "This forum is the community for QFClash users to exchange experience and help one another. Please keep posts courteous and lawful, and observe the community rules.",
     new_post: "New Post", prev: "Previous", next: "Next",
