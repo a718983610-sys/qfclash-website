@@ -1696,7 +1696,7 @@
       });
       if (!f7) return;
       var r7 = await ownerDo('/owner/users/' + uid + '/disconnect', f7);
-      if (r7) done('已静默断开 ' + r7.disconnected + ' 条连接。');
+      if (r7) done('断开指令已发送，将在对方下一次心跳时生效（已排队 ' + (r7.queuedDevices || 0) + ' 台设备）。');
     }
   }
   function renderOwnerTabs(uid) {
