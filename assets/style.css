@@ -106,7 +106,11 @@ footer .lic{margin-top:16px;line-height:1.9}
   .hero h1{font-size:34px}
   .hero{padding:52px 0 44px}
   .nav nav{display:none}
-  .nav{gap:14px}
+  .nav{gap:10px;flex-wrap:nowrap}
+  .nav .nav-auth{margin-left:auto}
+  .nav .nav-side{gap:8px}
+  .nav .nav-side a.nav-forum{padding:3px 11px;font-size:14px}
+  .lang-btn{padding:4px 10px;font-size:13px}
   section{padding:42px 0}
 }
 
@@ -241,12 +245,14 @@ input,textarea,select{transition:border-color .2s ease,box-shadow .2s ease}
 .step-note{font-size:13.5px;color:var(--gray);margin-bottom:12px;line-height:1.6}
 .badge-review{display:inline-block;background:#FFF4E0;color:#9A6200;border:1px solid #F2D8A0;border-radius:999px;font-size:12px;padding:1px 9px;margin-left:8px;vertical-align:1px;white-space:nowrap}
 
-/* 顶栏「论坛」入口：主色描边胶囊，全站强调 */
-.nav nav a.nav-forum{
+/* 顶栏右侧区：「论坛」胶囊紧挨中英文切换按钮 */
+.nav-side{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.nav-side .lang-btn{margin-left:0}
+.nav a.nav-forum{
   color:var(--blue);font-weight:600;border:1.5px solid var(--blue);border-radius:999px;
-  padding:4px 16px;align-self:center;line-height:1.5;
+  padding:4px 16px;align-self:center;line-height:1.5;white-space:nowrap;flex-shrink:0;
 }
-.nav nav a.nav-forum:hover{text-decoration:none;background:var(--blue);color:#fff}
+.nav a.nav-forum:hover{text-decoration:none;background:var(--blue);color:#fff}
 
 /* 首页论坛专区横幅 */
 .forum-banner{

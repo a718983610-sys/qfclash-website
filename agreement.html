@@ -21,11 +21,13 @@
     <nav>
       <a href="index.html#about" class="lang-zh">产品介绍</a><a href="index.html#about" class="lang-en" style="display:none">About</a>
       <a href="index.html#download" class="lang-zh">下载</a><a href="index.html#download" class="lang-en" style="display:none">Download</a>
-      <a href="forum.html" class="lang-zh nav-forum">论坛</a><a href="forum.html" class="lang-en nav-forum" style="display:none">Forum</a>
       <a href="index.html#points" class="lang-zh">积分规则</a><a href="index.html#points" class="lang-en" style="display:none">Points Rules</a>
     </nav>
     <div class="nav-auth" id="navAuth"></div>
-    <button class="lang-btn" id="langToggle" type="button">EN</button>
+    <div class="nav-side">
+      <a href="forum.html" class="lang-zh nav-forum">论坛</a><a href="forum.html" class="lang-en nav-forum" style="display:none">Forum</a>
+      <button class="lang-btn" id="langToggle" type="button">EN</button>
+    </div>
   </div>
 </header>
 
@@ -287,7 +289,7 @@
     document.documentElement.lang = lang === "en" ? "en" : "zh-CN";
     document.title = lang === "en" ? "QFClash User Agreement" : "QFClash 用户协议";
     btn.textContent = lang === "en" ? "中文" : "EN";
-    document.querySelectorAll("header nav a.lang-en").forEach(function (a) {
+    document.querySelectorAll("header a.lang-en").forEach(function (a) {
       a.style.display = lang === "en" ? "" : "none";
     });
     try { localStorage.setItem("qf_lang", lang); } catch (e) {}
