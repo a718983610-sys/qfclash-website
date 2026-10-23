@@ -241,6 +241,29 @@ input,textarea,select{transition:border-color .2s ease,box-shadow .2s ease}
 .step-note{font-size:13.5px;color:var(--gray);margin-bottom:12px;line-height:1.6}
 .badge-review{display:inline-block;background:#FFF4E0;color:#9A6200;border:1px solid #F2D8A0;border-radius:999px;font-size:12px;padding:1px 9px;margin-left:8px;vertical-align:1px;white-space:nowrap}
 
+/* 顶栏「论坛」入口：主色描边胶囊，全站强调 */
+.nav nav a.nav-forum{
+  color:var(--blue);font-weight:600;border:1.5px solid var(--blue);border-radius:999px;
+  padding:4px 16px;align-self:center;line-height:1.5;
+}
+.nav nav a.nav-forum:hover{text-decoration:none;background:var(--blue);color:#fff}
+
+/* 首页论坛专区横幅 */
+.forum-banner{
+  background:linear-gradient(120deg,#0A63E0 0%,var(--blue) 55%,#3D9BFF 100%);
+  border-radius:20px;padding:42px 44px;display:flex;align-items:center;gap:30px;flex-wrap:wrap;
+  box-shadow:0 16px 36px rgba(0,122,255,.25);color:#fff;
+}
+.forum-banner .fb-text{flex:1;min-width:260px}
+.forum-banner h2{color:#fff;text-align:left;font-size:26px;margin-bottom:8px}
+.forum-banner p{color:rgba(255,255,255,.9);font-size:15.5px;max-width:620px}
+.btn-forum{background:#fff;color:var(--blue);box-shadow:0 8px 20px rgba(0,40,90,.25);white-space:nowrap}
+.btn-forum:hover{background:#EAF3FF;color:var(--blue-dark)}
+@media (max-width:760px){
+  .forum-banner{padding:28px 22px}
+  .forum-banner h2{font-size:22px}
+}
+
 /* 使用流程示意 */
 .steps-title{font-size:21px;text-align:center;margin:38px 0 18px}
 .steps{display:flex;align-items:stretch;justify-content:center;gap:10px;flex-wrap:wrap;max-width:900px;margin:0 auto}
