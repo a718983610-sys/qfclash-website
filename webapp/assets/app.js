@@ -219,6 +219,7 @@
   }
   async function render() {
     var r = route(); markNav(r.name === 'chat' ? 'friends' : r.name);
+    probeOwner();
     window.scrollTo(0, 0);
     if (maintenanceOn) {
       view.innerHTML = '<div class="card" style="text-align:center;padding:44px 16px;"><h2>' + MAINTENANCE_TEXT + '</h2><p class="muted">维护结束后本页面将自动恢复使用，无需手动刷新。</p></div>';
@@ -236,6 +237,7 @@
     if (r.name === 'security') return pageSecurity();
     if (r.name === 'support') return pageSupport();
     if (r.name === 'me') return pageMe();
+    if (r.name === 'owner') return pageOwner(r);
     view.innerHTML = '<div class="card"><h2>页面不存在</h2><p class="muted">您访问的页面不存在。</p></div>';
   }
   window.addEventListener('hashchange', render);
@@ -1473,8 +1475,417 @@
     return best;
   }
 
+
+  // ---------- 站长管理台（#/owner） ----------
+  // 入口显隐仅为体验：是否站长以服务端 GET /owner/me 为准，全部接口另有角色校验。
+  var ownerState = null; var ownerProbedToken = '';
+  function toggleOwnerNav(show) { var a = $('#ownerNavLink'); if (a) a.hidden = !show; }
+  async function probeOwner() {
+    var tk = storeGet('qf_access_token') || '';
+    if (!tk) { ownerState = false; ownerProbedToken = ''; toggleOwnerNav(false); return; }
+    if (ownerProbedToken === tk && ownerState !== null) return;
+    ownerProbedToken = tk;
+    var r = await api('/owner/me');
+    ownerState = !!(r.ok && r.data && r.data.isOwner);
+    toggleOwnerNav(ownerState);
+  }
+  function ownerDenied() {
+    view.innerHTML = '<div class="card"><h2>站长管理台</h2><p class="muted">当前账号没有管理权限。如需协助，请通过智能客服联系维护者。</p></div>';
+  }
+  // 两步弹窗：第一步讲清对象与后果并确认，第二步输入登录密码完成身份核验（reauth）。
+  // 返回 { confirmed:true, password } 或 null（取消）。fieldsHtml 为第一步的附加表单，
+  // collect() 从第一步表单读取业务字段。
+  function ownerConfirm(opts) {
+    return new Promise(function (resolve) {
+      var ov = el('<div class="own-overlay"><div class="own-dialog" role="dialog" aria-modal="true">' +
+        '<h3>' + esc(opts.title) + '</h3><p>' + esc(opts.body) + '</p>' +
+        (opts.fieldsHtml || '') +
+        '<p class="muted small">该操作将记录在管理审计中。此为第一步确认，请核对无误后再继续。</p>' +
+        '<div class="row-end"><button type="button" class="ghost" data-act="cancel">取消</button>' +
+        '<button type="button" class="' + (opts.danger ? 'own-danger' : 'primary') + '" data-act="next">确认无误，继续</button></div></div></div>');
+      document.body.appendChild(ov);
+      function close(v) { ov.remove(); resolve(v); }
+      ov.addEventListener('click', function (ev) { if (ev.target === ov) close(null); });
+      ov.querySelector('[data-act="cancel"]').addEventListener('click', function () { close(null); });
+      ov.querySelector('[data-act="next"]').addEventListener('click', function () {
+        var fields = opts.collect ? opts.collect(ov) : {};
+        if (fields === null) return;
+        ov.querySelector('.own-dialog').innerHTML =
+          '<h3>身份核验</h3><p class="muted">为防止账号被他人冒用执行敏感操作，请输入您的登录密码完成核验。核验通过后操作将立即执行。</p>' +
+          '<label for="ownPw">登录密码</label><input id="ownPw" type="password" autocomplete="current-password">' +
+          '<p class="own-err muted small" style="color:#a50e0e;"></p>' +
+          '<div class="row-end"><button type="button" class="ghost" data-act="cancel2">取消</button>' +
+          '<button type="button" class="primary" data-act="go">确认执行</button></div>';
+        var pw = ov.querySelector('#ownPw'); pw.focus();
+        ov.querySelector('[data-act="cancel2"]').addEventListener('click', function () { close(null); });
+        ov.querySelector('[data-act="go"]').addEventListener('click', function () {
+          if (!pw.value) { ov.querySelector('.own-err').textContent = '请输入登录密码。'; return; }
+          fields.password = pw.value; fields.confirm = true;
+          close(fields);
+        });
+      });
+    });
+  }
+  async function ownerDo(path, body, doneMsg) {
+    var r = await api(path, { method: 'POST', body: body });
+    if (!r.ok) { alert(r.message || '操作失败，请稍后重试。'); return null; }
+    if (doneMsg) alert(doneMsg);
+    return r.data;
+  }
+  function banBadge(u) {
+    if (u.restricted && u.restricted.hasActiveBan) return ' <span class="own-badge warn">封禁中' + (u.restricted.banLevel === 'permanent' ? '（永久）' : '') + '</span>';
+    if (u.restricted && u.restricted.passwordFrozen) return ' <span class="own-badge warn">密码冻结</span>';
+    return '';
+  }
+
+  async function pageOwner(r) {
+    if (!loggedIn()) return needLogin('站长管理台');
+    await probeOwner();
+    if (!ownerState) return ownerDenied();
+    if (r.arg === 'user' && r.sub) return pageOwnerUser(Number(r.sub));
+    if (r.arg === 'reviews') return pageOwnerReviews();
+    if (r.arg === 'audit') return pageOwnerAudit();
+    return pageOwnerUsers(r);
+  }
+
+  async function pageOwnerUsers(r) {
+    view.innerHTML = '<div class="card"><h2>站长管理台 · 用户管理</h2>' +
+      '<p class="row wrap"><a class="ghost" href="#/owner/reviews">审核队列</a><a class="ghost" href="#/owner/audit">管理审计</a></p>' +
+      '<form id="ownSearch" class="row wrap" style="margin-top:10px;"><select id="ownBy"><option value="username">按账户 ID</option><option value="email">按邮箱</option></select>' +
+      '<input id="ownQ" type="text" placeholder="输入账户 ID 或邮箱（支持开头匹配）" style="flex:1;min-width:180px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;">' +
+      '<button class="primary" type="submit">搜索</button></form>' +
+      '<p class="muted small">邮箱在列表中打码展示；完整邮箱仅可在用户详情中经身份核验后单条查看。</p>' +
+      '<div id="ownList"><p class="muted">正在加载…</p></div></div>';
+    $('#ownSearch').addEventListener('submit', function (ev) { ev.preventDefault(); loadOwnerUsers(); });
+    loadOwnerUsers();
+  }
+  async function loadOwnerUsers(pageNum) {
+    var q = ($('#ownQ') && $('#ownQ').value || '').trim();
+    var by = ($('#ownBy') && $('#ownBy').value) || 'username';
+    var box = $('#ownList'); if (!box) return;
+    var path = '/owner/users?limit=20&offset=' + ((pageNum || 0) * 20) + (q ? '&q=' + encodeURIComponent(q) + '&by=' + by : '');
+    var r = await api(path);
+    if (!r.ok) { box.innerHTML = '<p class="muted">加载失败：' + esc(r.message || '') + '</p>'; return; }
+    var users = (r.data && r.data.users) || [];
+    if (!users.length) { box.innerHTML = '<p class="muted">没有符合条件的用户。</p>'; return; }
+    box.innerHTML = '<div class="list">' + users.map(function (u) {
+      return '<a class="item" href="#/owner/user/' + u.id + '">' + avatarSlotHtml(u.id, u.avatarVersion, u.hasAvatar, u.nickname || u.username, 40) +
+        '<span class="grow"><strong>' + esc(u.nickname || u.username) + '</strong>' + banBadge(u) + '<br><span class="muted small">账户 ID：' + esc(u.username) + ' ｜ ' + esc(u.emailMasked) + ' ｜ 注册于 ' + esc(fmtTs(u.createdAt)) + '</span></span><span aria-hidden="true">›</span></a>';
+    }).join('') + '</div>' +
+      '<p class="row"><button class="ghost" id="ownPrev"' + ((pageNum || 0) === 0 ? ' disabled' : '') + '>上一页</button>' +
+      '<button class="ghost" id="ownNext"' + (users.length < 20 ? ' disabled' : '') + '>下一页</button>' +
+      '<span class="muted small">共 ' + (r.data.total || 0) + ' 个用户</span></p>';
+    fillAvatars(box);
+    var prev = $('#ownPrev'), next = $('#ownNext');
+    if (prev) prev.addEventListener('click', function () { loadOwnerUsers((pageNum || 0) - 1); });
+    if (next) next.addEventListener('click', function () { loadOwnerUsers((pageNum || 0) + 1); });
+  }
+
+  function kvTable(rows) {
+    return '<table class="kv">' + rows.map(function (x) { return '<tr><td>' + esc(x[0]) + '</td><td>' + x[1] + '</td></tr>'; }).join('') + '</table>';
+  }
+  async function pageOwnerUser(uid) {
+    view.innerHTML = '<div class="card"><p><a href="#/owner">‹ 返回用户列表</a></p><h2>用户详情</h2><div id="ownBasic"><p class="muted">正在加载…</p></div></div>' +
+      '<div class="card"><h3>管理操作</h3><div class="own-tabs" id="ownActions"></div><div id="ownActionMsg"></div></div>' +
+      '<div class="card"><div class="own-tabs" id="ownTabs"></div><div id="ownTabBody"><p class="muted">请选择上方页签查看。</p></div></div>';
+    var r = await api('/owner/users/' + uid + '/basic');
+    var box = $('#ownBasic');
+    if (!r.ok) { box.innerHTML = '<p class="muted">加载失败：' + esc(r.message || '') + '</p>'; return; }
+    var b = r.data;
+    box.innerHTML = kvTable([
+      ['账户 ID', esc(b.username) + '（内部编号 ' + b.id + '）'],
+      ['昵称', esc(b.nickname || '（未设置）')],
+      ['邮箱', esc(b.emailMasked) + ' <button class="ghost" id="ownViewEmail" type="button">查看完整邮箱</button>'],
+      ['账号状态', esc(b.status) + (b.passwordFrozen ? ' ｜ 密码已冻结' : '') + (b.deletion ? ' ｜ 已申请注销（生效时间 ' + esc(fmtTs(b.deletion.effectiveAt || 0)) + '）' : '')],
+      ['密码', b.passwordSet.set ? '已设置' : '未设置（谷歌新账号待补设）'],
+      ['谷歌登录', b.googleBound ? '已绑定' : '未绑定'],
+      ['注册时间', esc(fmtTs(b.createdAt))],
+      ['最近活跃', b.lastActiveAt ? esc(fmtTs(b.lastActiveAt)) : '—'],
+    ]);
+    fillAvatars(box);
+    $('#ownViewEmail').addEventListener('click', async function () {
+      var f = await ownerConfirm({ title: '查看完整邮箱', body: '您将查看该用户的完整邮箱地址。此操作将记录在管理审计中（记录不含邮箱本身）。' });
+      if (!f) return;
+      var vr = await api('/owner/users/' + uid + '/view-email', { method: 'POST', body: f });
+      if (!vr.ok) return alert(vr.message || '核验未通过。');
+      alert('该用户的完整邮箱：' + vr.data.email);
+    });
+    renderOwnerActions(uid, b);
+    renderOwnerTabs(uid);
+  }
+  function renderOwnerActions(uid, b) {
+    var box = $('#ownActions'); if (!box) return;
+    var acts = [
+      ['setpw', '替用户设置新密码'], ['nickname', '修改昵称'], ['email', '更换绑定邮箱'],
+      ['ban', '封禁'], ['unban', '解除封禁'], ['unfreeze', '解除密码冻结'], ['disconnect', '静默断开连接'],
+    ];
+    box.innerHTML = acts.map(function (a) { return '<button type="button" data-act="' + a[0] + '">' + a[1] + '</button>'; }).join('');
+    box.querySelectorAll('button').forEach(function (btn) {
+      btn.addEventListener('click', function () { ownerAction(uid, btn.getAttribute('data-act')); });
+    });
+  }
+  async function ownerAction(uid, act) {
+    var msg = $('#ownActionMsg');
+    function done(t) { if (msg) msg.innerHTML = '<p style="color:#137333;">' + esc(t) + '</p>'; pageOwnerUser(uid); }
+    if (act === 'setpw') {
+      var f1 = await ownerConfirm({
+        title: '替用户设置新密码', danger: true,
+        body: '您将为该用户设置一个新密码。执行后：该用户在所有设备上的登录状态将被退出；如其密码处于冻结状态将一并解除；系统会发邮件通知该用户。',
+        fieldsHtml: '<label for="fNewPw">新密码（8 至 72 位）</label><input id="fNewPw" type="text" autocomplete="off">',
+        collect: function (ov) { var v = ov.querySelector('#fNewPw').value; if (v.length < 8 || v.length > 72) { alert('新密码长度须为 8 至 72 位。'); return null; } return { newPassword: v }; },
+      });
+      if (!f1) return;
+      var r1 = await ownerDo('/owner/users/' + uid + '/set-password', f1);
+      if (r1) done(r1.message || '密码已重置。');
+    } else if (act === 'nickname') {
+      var f2 = await ownerConfirm({
+        title: '修改昵称', body: '新昵称将即时生效并公开显示，须通过内容审核口径。',
+        fieldsHtml: '<label for="fNick">新昵称</label><input id="fNick" type="text" maxlength="24">',
+        collect: function (ov) { var v = ov.querySelector('#fNick').value.trim(); if (!v) { alert('请填写新昵称。'); return null; } return { nickname: v }; },
+      });
+      if (!f2) return;
+      var r2 = await ownerDo('/owner/users/' + uid + '/profile', f2);
+      if (r2) done(r2.message || '资料已更新。');
+    } else if (act === 'email') {
+      var f3 = await ownerConfirm({
+        title: '更换绑定邮箱', danger: true,
+        body: '您将把该用户的绑定邮箱更换为新邮箱。执行后：该用户在所有设备上的登录状态将被退出；新邮箱与原邮箱都会收到通知邮件。',
+        fieldsHtml: '<label for="fMail">新邮箱</label><input id="fMail" type="email" autocomplete="off">',
+        collect: function (ov) { var v = ov.querySelector('#fMail').value.trim(); if (!v) { alert('请填写新邮箱。'); return null; } return { newEmail: v }; },
+      });
+      if (!f3) return;
+      var r3 = await ownerDo('/owner/users/' + uid + '/change-email', f3);
+      if (r3) done(r3.message || '绑定邮箱已更换。');
+    } else if (act === 'ban') {
+      var f4 = await ownerConfirm({
+        title: '封禁用户', danger: true,
+        body: '封禁后该用户将无法登录（警告除外），其现有登录状态会被退出。封禁原因将按既定口径向该用户展示。',
+        fieldsHtml: '<label for="fLevel">封禁级别</label><select id="fLevel"><option value="warn">警告（仅记录）</option><option value="timed">限时封禁</option><option value="permanent">永久封禁</option></select>' +
+          '<label for="fDays">限时封禁天数（限时时填写）</label><input id="fDays" type="number" min="1" value="7">' +
+          '<label for="fReason">封禁原因（向用户展示）</label><input id="fReason" type="text" value="违反用户协议">' +
+          '<label><input type="checkbox" id="fDev" style="width:auto;"> 同时封禁该用户名下设备</label>',
+        collect: function (ov) {
+          var out = { level: ov.querySelector('#fLevel').value, reasonText: ov.querySelector('#fReason').value.trim() || '违反用户协议', alsoBanDevices: ov.querySelector('#fDev').checked };
+          if (out.level === 'timed') out.durationDays = Number(ov.querySelector('#fDays').value) || 7;
+          return out;
+        },
+      });
+      if (!f4) return;
+      var r4 = await ownerDo('/owner/users/' + uid + '/ban', f4);
+      if (r4) done('已执行封禁（级别：' + r4.level + '）。');
+    } else if (act === 'unban') {
+      var f5 = await ownerConfirm({
+        title: '解除封禁', body: '将解除该用户当前全部生效中的封禁（含永久封禁）。站长人工处置优先于自动处置，解除后自动系统不会就同一事由立即再次处置。',
+        fieldsHtml: '<label><input type="checkbox" id="fDevU" style="width:auto;"> 同时解除其名下设备的封禁</label>',
+        collect: function (ov) { return { includeDevices: ov.querySelector('#fDevU').checked }; },
+      });
+      if (!f5) return;
+      var r5 = await ownerDo('/owner/users/' + uid + '/unban', f5);
+      if (r5) done('已解除封禁 ' + r5.lifted + ' 条。');
+    } else if (act === 'unfreeze') {
+      var f6 = await ownerConfirm({ title: '解除密码冻结', body: '将立即解除该用户的密码冻结并清零密码连错计数，该用户可重新登录。' });
+      if (!f6) return;
+      var r6 = await ownerDo('/owner/users/' + uid + '/unfreeze', f6);
+      if (r6) done(r6.message || '已解除冻结。');
+    } else if (act === 'disconnect') {
+      var f7 = await ownerConfirm({
+        title: '静默断开连接', danger: true,
+        body: '将断开该用户当前的全部在线连接（仅断开本次连接，不封禁账号，其可重新连接）。对方不会收到任何提示。断开原因仅记录在管理审计中。',
+        fieldsHtml: '<label for="fWhy">断开原因（仅审计留痕）</label><select id="fWhy"><option value="SECURITY_RISK">安全风险</option><option value="ABUSE_SUSPECTED">疑似滥用</option><option value="USER_REQUESTED">用户本人请求</option><option value="OTHER">其他</option></select>',
+        collect: function (ov) { return { reasonCode: ov.querySelector('#fWhy').value }; },
+      });
+      if (!f7) return;
+      var r7 = await ownerDo('/owner/users/' + uid + '/disconnect', f7);
+      if (r7) done('已静默断开 ' + r7.disconnected + ' 条连接。');
+    }
+  }
+  function renderOwnerTabs(uid) {
+    var tabs = [['points', '积分与兑换'], ['devices', '设备与连接'], ['forum', '论坛'], ['risk', '风控与处置'], ['audit', '管理审计']];
+    var box = $('#ownTabs'); if (!box) return;
+    box.innerHTML = tabs.map(function (t, i) { return '<button type="button" data-tab="' + t[0] + '"' + (i === 0 ? ' class="active"' : '') + '>' + t[1] + '</button>'; }).join('');
+    box.querySelectorAll('button').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        box.querySelectorAll('button').forEach(function (x) { x.classList.remove('active'); });
+        btn.classList.add('active');
+        loadOwnerTab(uid, btn.getAttribute('data-tab'));
+      });
+    });
+    loadOwnerTab(uid, 'points');
+  }
+  async function loadOwnerTab(uid, tab) {
+    var body = $('#ownTabBody'); if (!body) return;
+    body.innerHTML = '<p class="muted">正在加载…</p>';
+    var fail = function (r) { body.innerHTML = '<p class="muted">加载失败：' + esc((r && r.message) || '') + '</p>'; };
+    if (tab === 'points') {
+      var r = await api('/owner/users/' + uid + '/points'); if (!r.ok) return fail(r);
+      var d = r.data;
+      var orders = (d.orders || []).map(function (o) {
+        return '<tr><td>#' + o.id + '</td><td>' + esc(o.productName || '') + '</td><td>' + o.pricePoints + ' 分</td><td>' + esc(o.status) + '</td><td>' + esc(o.payoutAddressMasked || o.payoutEmailMasked || '—') + (o.payoutAddressMasked ? ' <button class="ghost" data-payout="' + o.id + '" type="button">查看完整发放信息</button>' : '') + '</td></tr>';
+      }).join('');
+      body.innerHTML = kvTable([['可用积分', String(d.points.balance)], ['冻结积分', String(d.points.frozen)], ['累计获得', String(d.points.totalEarned)], ['累计消耗', String(d.points.totalSpent)], ['附件用量', (d.attachmentUsageBytes / 1048576).toFixed(2) + ' MB']]) +
+        '<h3>兑换订单</h3>' + (orders ? '<table class="kv"><tr><td>订单</td><td>商品</td><td>积分</td><td>状态</td><td>发放信息</td></tr>' + orders + '</table>' : '<p class="muted">暂无兑换订单。</p>') +
+        '<p><button class="ghost" id="ownLedger" type="button">查看积分流水</button></p><div id="ownLedgerBox"></div>';
+      body.querySelectorAll('[data-payout]').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          var f = await ownerConfirm({ title: '查看完整发放信息', body: '您将查看该订单的完整发放信息（收款地址或接收邮箱）。此操作将记录在管理审计中（记录不含具体内容）。' });
+          if (!f) return;
+          var vr = await api('/owner/users/' + uid + '/view-payout', { method: 'POST', body: { orderId: Number(btn.getAttribute('data-payout')), password: f.password } });
+          if (!vr.ok) return alert(vr.message || '核验未通过。');
+          alert('发放方式：' + (vr.data.payoutMethod || '') + '\n收款地址：' + (vr.data.payoutAddress || '—') + '\n接收邮箱：' + (vr.data.payoutEmail || '—'));
+        });
+      });
+      var lb = $('#ownLedger');
+      if (lb) lb.addEventListener('click', async function () {
+        var lr = await api('/owner/users/' + uid + '/ledger?limit=50');
+        var lbox = $('#ownLedgerBox');
+        if (!lr.ok) { lbox.innerHTML = '<p class="muted">加载失败。</p>'; return; }
+        var rows = (lr.data.ledger || []).map(function (x) { return '<tr><td>' + esc(fmtTs(x.createdAt)) + '</td><td>' + esc(x.type) + '</td><td>' + (x.amount > 0 ? '+' : '') + x.amount + '</td><td>' + x.balanceAfter + '</td><td>' + esc(x.note || '') + '</td></tr>'; }).join('');
+        lbox.innerHTML = rows ? '<table class="kv"><tr><td>时间</td><td>类型</td><td>变动</td><td>余额</td><td>备注</td></tr>' + rows + '</table>' : '<p class="muted">暂无积分流水。</p>';
+      });
+    } else if (tab === 'devices') {
+      var rd = await api('/owner/users/' + uid + '/devices'); if (!rd.ok) return fail(rd);
+      var rc = await api('/owner/users/' + uid + '/connection');
+      var devs = (rd.data.devices || []).map(function (x) {
+        return '<tr><td>' + esc(x.name || '（未知设备）') + '</td><td>' + esc(x.platform || '') + '</td><td>' + esc(x.region || '—') + '</td><td>' + (x.lastActiveAt ? esc(fmtTs(x.lastActiveAt)) : '—') + '</td><td>' + (x.trusted ? '已信任' : '未信任') + '</td></tr>';
+      }).join('');
+      var conn = rc.ok && rc.data.online ? '当前在线（连接数 ' + rc.data.devices.length + '，流量汇总 ' + rc.data.devices.reduce(function (s, x) { return s + (x.trafficBytes || 0); }, 0) + ' 字节）' : '当前不在线';
+      body.innerHTML = '<p>连接状态：<strong>' + esc(conn) + '</strong></p>' +
+        (devs ? '<table class="kv"><tr><td>设备</td><td>平台</td><td>地区</td><td>最近活跃</td><td>信任</td></tr>' + devs + '</table>' : '<p class="muted">暂无设备记录。</p>') +
+        '<p class="muted small">通行密钥：' + (rd.data.passkeyStatus.hasPasskey ? '已创建 ' + rd.data.passkeyStatus.count + ' 个' : '未创建') + '。出于隐私保护，管理台不展示连接来源地址与访问目标。</p>';
+    } else if (tab === 'forum') {
+      var rf = await api('/owner/users/' + uid + '/forum'); if (!rf.ok) return fail(rf);
+      var f = rf.data;
+      body.innerHTML = kvTable([
+        ['已发布帖子', String(f.stats.publishedPosts)], ['已发布回复', String(f.stats.publishedReplies)], ['累计获赞', String(f.stats.likesReceived)],
+        ['创建的营地', (f.camps.created || []).map(function (c) { return esc(c.name) + '（' + esc(c.status) + '）'; }).join('、') || '无'],
+        ['加入营地数', String(f.camps.joinedCount)],
+        ['被举报次数', String(f.reports.reportedTimes) + '（成立 ' + f.reports.upheldTimes + ' 次）'],
+        ['千赞奖励申请', (f.rewardApplications || []).length + ' 条'],
+      ]);
+    } else if (tab === 'risk') {
+      var rr2 = await api('/owner/users/' + uid + '/risk'); if (!rr2.ok) return fail(rr2);
+      var bans = (rr2.data.bans || []).map(function (x) {
+        return '<tr><td>' + (x.targetKind === 'user' ? '账号' : '设备') + '</td><td>' + esc(x.level) + '</td><td>' + esc(x.source || '') + '</td><td>' + esc(x.status) + '</td><td>' + esc(fmtTs(x.createdAt)) + '</td><td>' + esc(x.reasonCode || '') + '</td></tr>';
+      }).join('');
+      body.innerHTML = bans ? '<table class="kv"><tr><td>对象</td><td>级别</td><td>来源</td><td>状态</td><td>时间</td><td>原因码</td></tr>' + bans + '</table>' : '<p class="muted">暂无封禁记录。</p>';
+    } else if (tab === 'audit') {
+      var ra = await api('/owner/users/' + uid + '/audit?limit=50'); if (!ra.ok) return fail(ra);
+      var rows2 = (ra.data.audit || []).map(function (x) { return '<tr><td>' + esc(fmtTs(x.createdAt)) + '</td><td>' + esc(x.operator) + '</td><td>' + esc(x.action) + '</td><td>' + esc(x.detail || '') + '</td></tr>'; }).join('');
+      body.innerHTML = rows2 ? '<table class="kv"><tr><td>时间</td><td>操作者</td><td>动作</td><td>摘要</td></tr>' + rows2 + '</table>' : '<p class="muted">暂无针对该用户的管理记录。</p>';
+    }
+  }
+
+  async function pageOwnerReviews() {
+    view.innerHTML = '<div class="card"><p><a href="#/owner">‹ 返回用户列表</a></p><h2>审核队列</h2>' +
+      '<div class="own-tabs" id="ownQ">' +
+      [['forum', '论坛待审'], ['appeals', '封号申诉'], ['recovery', '找回申诉'], ['rewards', '千赞奖励'], ['orders', '兑换订单']].map(function (t, i) { return '<button type="button" data-q="' + t[0] + '"' + (i === 0 ? ' class="active"' : '') + '>' + t[1] + '</button>'; }).join('') +
+      '</div><div id="ownQBody"><p class="muted">正在加载…</p></div></div>';
+    $('#ownQ').querySelectorAll('button').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        $('#ownQ').querySelectorAll('button').forEach(function (x) { x.classList.remove('active'); });
+        btn.classList.add('active');
+        loadOwnerQueue(btn.getAttribute('data-q'));
+      });
+    });
+    loadOwnerQueue('forum');
+  }
+  function reviewButtons(html) { return '<span class="row" style="margin-top:6px;">' + html + '</span>'; }
+  async function loadOwnerQueue(kind) {
+    var body = $('#ownQBody'); if (!body) return;
+    body.innerHTML = '<p class="muted">正在加载…</p>';
+    function decide(path, extra, title, danger) {
+      return async function () {
+        var f = await ownerConfirm({ title: title, body: '请确认对该条目执行此处理。处理结果将记录在管理审计中。', danger: danger });
+        if (!f) return;
+        Object.keys(extra).forEach(function (k) { f[k] = extra[k]; });
+        var r = await ownerDo(path, f);
+        if (r) loadOwnerQueue(kind);
+      };
+    }
+    if (kind === 'forum') {
+      var r = await api('/owner/reviews/forum-pending'); if (!r.ok) { body.innerHTML = '<p class="muted">加载失败。</p>'; return; }
+      var d = r.data || {}; var html = '';
+      (d.posts || []).forEach(function (p) {
+        html += '<div class="item"><span class="grow"><strong>[待审帖子]</strong> ' + esc(p.title) + '<br><span class="muted small">' + esc(p.contentPreview || '') + '</span></span></div>' +
+          reviewButtons('<button class="primary" data-a="' + p.id + '">通过</button><button class="ghost" data-r="' + p.id + '">驳回</button><button class="ghost" data-d="' + p.id + '">删除</button>');
+        setTimeout(function () {}, 0);
+      });
+      (d.replies || []).forEach(function (p) { html += '<div class="item"><span class="grow"><strong>[待审回复]</strong><br><span class="muted small">' + esc(p.contentPreview || '') + '</span></span></div>' + reviewButtons('<button class="primary" data-ar="' + p.id + '">通过</button><button class="ghost" data-rr="' + p.id + '">驳回</button><button class="ghost" data-dr="' + p.id + '">删除</button>'); });
+      (d.camps || []).forEach(function (c) { html += '<div class="item"><span class="grow"><strong>[待审营地]</strong> ' + esc(c.name) + '<br><span class="muted small">' + esc(c.introPreview || '') + '</span></span></div>' + reviewButtons('<button class="primary" data-ac="' + c.id + '">通过</button><button class="ghost" data-rc="' + c.id + '">驳回</button>'); });
+      (d.campRenames || []).forEach(function (c) { html += '<div class="item"><span class="grow"><strong>[营地改名]</strong> ' + esc(c.name) + ' → ' + esc(c.pendingName) + '</span></div>' + reviewButtons('<button class="primary" data-an="' + c.id + '">通过</button><button class="ghost" data-rn="' + c.id + '">驳回</button>'); });
+      (d.campFlags || []).forEach(function (c) { html += '<div class="item"><span class="grow"><strong>[营地复核]</strong> ' + esc(c.name) + '</span></div>' + reviewButtons('<button class="primary" data-rp="' + c.id + '">复开营地</button>'); });
+      body.innerHTML = html || '<p class="muted">暂无待审内容。</p>';
+      body.querySelectorAll('[data-a]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/forum/post/' + b.getAttribute('data-a') + '/review', { decision: 'approve' }, '通过该帖子')); });
+      body.querySelectorAll('[data-r]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/forum/post/' + b.getAttribute('data-r') + '/review', { decision: 'reject' }, '驳回该帖子', true)); });
+      body.querySelectorAll('[data-d]').forEach(function (b) { b.addEventListener('click', decide('/owner/forum/post/' + b.getAttribute('data-d') + '/delete', {}, '删除该帖子', true)); });
+      body.querySelectorAll('[data-ar]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/forum/reply/' + b.getAttribute('data-ar') + '/review', { decision: 'approve' }, '通过该回复')); });
+      body.querySelectorAll('[data-rr]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/forum/reply/' + b.getAttribute('data-rr') + '/review', { decision: 'reject' }, '驳回该回复', true)); });
+      body.querySelectorAll('[data-dr]').forEach(function (b) { b.addEventListener('click', decide('/owner/forum/reply/' + b.getAttribute('data-dr') + '/delete', {}, '删除该回复', true)); });
+      body.querySelectorAll('[data-ac]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/forum/camp/' + b.getAttribute('data-ac') + '/review', { decision: 'approve' }, '通过该营地')); });
+      body.querySelectorAll('[data-rc]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/forum/camp/' + b.getAttribute('data-rc') + '/review', { decision: 'reject' }, '驳回该营地', true)); });
+      body.querySelectorAll('[data-an]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/forum/campRename/' + b.getAttribute('data-an') + '/review', { decision: 'approve' }, '通过该改名')); });
+      body.querySelectorAll('[data-rn]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/forum/campRename/' + b.getAttribute('data-rn') + '/review', { decision: 'reject' }, '驳回该改名', true)); });
+      body.querySelectorAll('[data-rp]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/camps/' + b.getAttribute('data-rp') + '/reopen', {}, '复开该营地')); });
+    } else if (kind === 'appeals') {
+      var ra = await api('/owner/reviews/appeals?status=pending'); if (!ra.ok) { body.innerHTML = '<p class="muted">加载失败。</p>'; return; }
+      var list = (ra.data && ra.data.appeals) || [];
+      body.innerHTML = list.length ? list.map(function (a) {
+        return '<div class="item"><span class="grow"><strong>封号申诉 #' + a.id + '</strong>（用户 ' + a.userId + '）<br><span class="muted small">' + esc(a.content || '') + '</span></span></div>' +
+          reviewButtons('<button class="primary" data-ap="' + a.id + '">批准（解封）</button><button class="ghost" data-rj="' + a.id + '">驳回</button>');
+      }).join('') : '<p class="muted">暂无待审申诉。</p>';
+      body.querySelectorAll('[data-ap]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/appeals/' + b.getAttribute('data-ap') + '/review', { decision: 'approve' }, '批准该申诉')); });
+      body.querySelectorAll('[data-rj]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/appeals/' + b.getAttribute('data-rj') + '/review', { decision: 'reject' }, '驳回该申诉', true)); });
+    } else if (kind === 'recovery') {
+      var rr3 = await api('/owner/reviews/recovery?status=pending'); if (!rr3.ok) { body.innerHTML = '<p class="muted">加载失败。</p>'; return; }
+      var list3 = (rr3.data && rr3.data.appeals) || [];
+      body.innerHTML = list3.length ? list3.map(function (a) {
+        return '<div class="item"><span class="grow"><strong>找回申诉 #' + a.id + '</strong>（账号 ' + esc(a.account || '') + '）<br><span class="muted small">旧密码命中 ' + (a.oldPasswordHits || 0) + ' 个 ｜ 机型 ' + esc(a.deviceModel || '—') + ' ｜ 地点 ' + esc(a.locationText || '—') + ' ｜ 好友验证 ' + (a.friendVerified ? '已通过' : '未完成') + '</span></span></div>' +
+          reviewButtons('<button class="primary" data-ap3="' + a.id + '">批准（发重置凭证）</button><button class="ghost" data-rj3="' + a.id + '">驳回</button>');
+      }).join('') : '<p class="muted">暂无待审申诉。</p>';
+      body.querySelectorAll('[data-ap3]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/recovery/' + b.getAttribute('data-ap3') + '/decide', { decision: 'approve' }, '批准该找回申诉')); });
+      body.querySelectorAll('[data-rj3]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/recovery/' + b.getAttribute('data-rj3') + '/decide', { decision: 'reject' }, '驳回该找回申诉', true)); });
+    } else if (kind === 'rewards') {
+      var rw = await api('/owner/reviews/rewards?state=pending'); if (!rw.ok) { body.innerHTML = '<p class="muted">加载失败。</p>'; return; }
+      var list4 = (rw.data && rw.data.applications) || [];
+      body.innerHTML = list4.length ? list4.map(function (a) {
+        return '<div class="item"><span class="grow"><strong>千赞奖励 #' + a.id + '</strong>（帖子 ' + a.postId + '，作者 ' + a.authorUserId + '）<br><span class="muted small">点赞数 ' + (a.likeCountAtApply || 0) + ' ｜ <a href="#/owner/reviews/likes/' + a.postId + '" data-likes="' + a.postId + '">查看点赞构成（脱敏）</a></span></span></div>' +
+          reviewButtons('<button class="primary" data-ap4="' + a.id + '">批准（发 5 积分）</button><button class="ghost" data-rj4="' + a.id + '">驳回</button>');
+      }).join('') : '<p class="muted">暂无待审申请。</p>';
+      body.querySelectorAll('[data-ap4]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/rewards/' + b.getAttribute('data-ap4') + '/review', { decision: 'approve' }, '批准该奖励申请')); });
+      body.querySelectorAll('[data-rj4]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/rewards/' + b.getAttribute('data-rj4') + '/review', { decision: 'reject' }, '驳回该奖励申请', true)); });
+      body.querySelectorAll('[data-likes]').forEach(function (b) {
+        b.addEventListener('click', async function (ev) {
+          ev.preventDefault();
+          var lr = await api('/owner/reviews/like-composition/' + b.getAttribute('data-likes'));
+          if (!lr.ok) return alert(lr.message || '加载失败。');
+          var d = lr.data;
+          alert('点赞构成（脱敏聚合）：\n总赞 ' + d.total + ' ｜ 独立设备 ' + d.distinctDevices + ' ｜ 独立来源 ' + d.distinctIpHashes + '\n单设备最高占比 ' + Math.round(d.topDeviceShare * 100) + '% ｜ 单来源最高占比 ' + Math.round(d.topIpShare * 100) + '%');
+        });
+      });
+    } else if (kind === 'orders') {
+      var ro = await api('/owner/reviews/orders'); if (!ro.ok) { body.innerHTML = '<p class="muted">加载失败。</p>'; return; }
+      var list5 = ((ro.data && ro.data.orders) || []).filter(function (o) { return o.status === 'pending_review' || o.status === 'pending_payout'; });
+      body.innerHTML = list5.length ? list5.map(function (o) {
+        return '<div class="item"><span class="grow"><strong>兑换订单 #' + o.id + '</strong>（用户 ' + o.userId + '，' + o.pricePoints + ' 分，状态 ' + esc(o.status) + '）</span></div>' +
+          reviewButtons('<button class="primary" data-rv="' + o.id + '">审核通过</button><button class="ghost" data-rjo="' + o.id + '">审核驳回</button>');
+      }).join('') : '<p class="muted">暂无待处理订单。</p>';
+      body.querySelectorAll('[data-rv]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/orders/' + b.getAttribute('data-rv') + '/review', { decision: 'approve' }, '审核通过该订单')); });
+      body.querySelectorAll('[data-rjo]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/orders/' + b.getAttribute('data-rjo') + '/review', { decision: 'reject' }, '驳回该订单', true)); });
+    }
+  }
+
+  async function pageOwnerAudit() {
+    view.innerHTML = '<div class="card"><p><a href="#/owner">‹ 返回用户列表</a></p><h2>管理审计（我的操作）</h2><div id="ownAuditBox"><p class="muted">正在加载…</p></div></div>';
+    var box = $('#ownAuditBox');
+    var r = await api('/owner/audit?limit=50');
+    if (!r.ok) { box.innerHTML = '<p class="muted">加载失败。</p>'; return; }
+    var rows = (r.data.audit || []).map(function (x) { return '<tr><td>' + esc(fmtTs(x.createdAt)) + '</td><td>' + esc(x.action) + '</td><td>' + esc(x.targetType || '') + ' ' + esc(x.targetId || '') + '</td><td>' + esc(x.detail || '') + '</td></tr>'; }).join('');
+    box.innerHTML = rows ? '<table class="kv"><tr><td>时间</td><td>动作</td><td>对象</td><td>摘要</td></tr>' + rows + '</table>' : '<p class="muted">暂无管理操作记录。</p>';
+  }
+
   // ---------- 启动 ----------
   renderIdentity();
+  probeOwner();
   render();
   checkMaintenance();
   setInterval(checkMaintenance, 60000);
