@@ -2,7 +2,8 @@
 // 提供：导航登录状态、登录/注册弹窗（注册一步式五栏：ID、邮箱、密码、
 // 重复密码、验证码同屏，提交时前端依次验码换票据、带 username 完成注册；
 // 登录支持邮箱或 ID＋密码）、双令牌本地保存、
-// 401 自动续期、谷歌登录占位。论坛页通过 window.QFAuth 复用同一登录态。
+// 401 自动续期、谷歌一键登录（GIS 官方库，令牌走 /auth/google，落同一套
+// 会话）。论坛页通过 window.QFAuth 复用同一登录态。
 (function () {
   var API = "https://qfclash-account.a718983610.workers.dev";
 
@@ -14,7 +15,8 @@
       id_ph: "账户 ID（至少 8 位，字母与数字）", login_id_ph: "邮箱或 ID",
       pwd_set_ph: "请设置登录密码（8 至 72 位）", pwd_confirm_ph: "请再次输入密码",
       google_btn: "使用 Google 账号登录", or: "或",
-      google_soon: "谷歌登录即将上线，敬请期待。",
+      google_fail: "谷歌登录失败，请稍后重试。",
+      google_load_fail: "谷歌登录组件加载失败，请检查网络连接后重试。",
       do_login: "登录", send_code: "发送验证码",
       complete_reg: "完成注册",
       dual_hint: "为保障账号安全，本次登录需完成邮箱验证码校验。",
@@ -43,7 +45,8 @@
       id_ph: "Account ID (min. 8 characters, letters and numbers)", login_id_ph: "Email or ID",
       pwd_set_ph: "Set a password (8 to 72 characters)", pwd_confirm_ph: "Re-enter the password",
       google_btn: "Continue with Google", or: "or",
-      google_soon: "Google sign-in is coming soon. Stay tuned.",
+      google_fail: "Google sign-in failed. Please try again later.",
+      google_load_fail: "The Google sign-in component failed to load. Please check your connection and try again.",
       do_login: "Sign In", send_code: "Send Code",
       complete_reg: "Complete Registration",
       dual_hint: "To keep your account secure, this sign-in requires an email verification code.",
@@ -144,6 +147,69 @@
   }
   function fireChange() { window.dispatchEvent(new CustomEvent("qf-auth-change")); }
 
+  // ---------- 谷歌一键登录（Google Identity Services 官方库） ----------
+  var GOOGLE_CLIENT_ID = "340614194006-7a7anda3p473qjlhr67k6hn3o6aaqu9o.apps.googleusercontent.com";
+  var gisState = "idle"; // idle | loading | ready | failed
+  function loadGis() {
+    if (window.google && window.google.accounts && window.google.accounts.id) {
+      gisState = "ready";
+      return;
+    }
+    if (gisState === "loading" || gisState === "failed") return;
+    gisState = "loading";
+    var s = document.createElement("script");
+    s.src = "https://accounts.google.com/gsi/client";
+    s.async = true;
+    s.defer = true;
+    s.onload = function () { gisState = "ready"; renderGoogleButton(); };
+    s.onerror = function () { gisState = "failed"; renderGoogleButton(); };
+    document.head.appendChild(s);
+  }
+  function onGoogleCredential(resp) {
+    if (!resp || !resp.credential) { showAlert(t("google_fail"), false); return; }
+    post("/auth/google", {
+      idToken: resp.credential,
+      deviceHash: deviceId(), deviceName: "Website", platform: "website"
+    }).then(function (r) {
+      if (r.ok && r.data.accessToken) {
+        saveSession(r.data);
+        finishAuth(t("login_ok"));
+      } else {
+        showAlert(serverMsg(r.data, "google_fail"), false);
+      }
+    }).catch(function () { showAlert(t("generic_fail"), false); });
+  }
+  function renderGoogleButton() {
+    var host = document.getElementById("googleBtnHost");
+    if (!host) return;
+    if (!(window.google && window.google.accounts && window.google.accounts.id)) {
+      // GIS 库未就绪：加载中先留空；加载失败给一只回退按钮，点击给真实错误。
+      if (gisState === "failed" && !host.firstChild) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "google-btn";
+        b.textContent = t("google_btn");
+        b.addEventListener("click", function () { showAlert(t("google_load_fail"), false); });
+        host.appendChild(b);
+      }
+      return;
+    }
+    google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: onGoogleCredential,
+      locale: lang === "en" ? "en" : "zh_CN"
+    });
+    host.innerHTML = "";
+    var w = host.clientWidth || 364;
+    if (w > 364) w = 364;
+    if (w < 200) w = 200;
+    google.accounts.id.renderButton(host, {
+      type: "standard", theme: "outline", size: "large",
+      text: "continue_with", shape: "rectangular",
+      logo_alignment: "left", width: w
+    });
+  }
+
   // ---------- 弹窗 ----------
   var regState = { email: "" };
   function buildModal() {
@@ -160,7 +226,7 @@
       '<div class="alert" id="authAlert"></div>' +
       // 登录
       '<div id="paneLogin">' +
-      '<button type="button" class="google-btn" id="googleBtn"><span class="g">G</span><span id="googleBtnTxt"></span></button>' +
+      '<div id="googleBtnHost" style="display:flex;justify-content:center;margin-bottom:6px;min-height:44px"></div>' +
       '<div class="divider" id="orDiv"></div>' +
       '<input id="liEmail" type="text" autocomplete="username">' +
       '<p class="field-err" id="liEmailErr"></p>' +
@@ -198,9 +264,6 @@
     });
     document.getElementById("tabLogin").addEventListener("click", function () { switchTab("login"); });
     document.getElementById("tabRegister").addEventListener("click", function () { switchTab("register"); });
-    document.getElementById("googleBtn").addEventListener("click", function () {
-      showAlert(t("google_soon"), false);
-    });
     document.getElementById("liSubmit").addEventListener("click", doLogin);
     document.getElementById("liGetCode").addEventListener("click", function () {
       var email = document.getElementById("liEmail").value.trim();
@@ -220,12 +283,13 @@
     });
     document.getElementById("rgComplete").addEventListener("click", doRegister);
     applyTexts();
+    loadGis();
   }
   function applyTexts() {
     var set = function (id, txt) { var el = document.getElementById(id); if (el) el.textContent = txt; };
     var ph = function (id, txt) { var el = document.getElementById(id); if (el) el.setAttribute("placeholder", txt); };
     set("tabLogin", t("tab_login")); set("tabRegister", t("tab_register"));
-    set("googleBtnTxt", t("google_btn")); set("orDiv", t("or"));
+    set("orDiv", t("or"));
     set("liSubmit", t("do_login")); set("liGetCode", t("get_code")); set("liDualHint", t("dual_hint"));
     set("regNote", t("reg_note")); set("regFormNote", t("reg_form_note"));
     set("rgSendCode", t("send_code"));
@@ -237,6 +301,7 @@
     document.querySelectorAll("#authModal [data-close]").forEach(function (b) {
       b.textContent = lang === "en" ? "Cancel" : "取消";
     });
+    renderGoogleButton();
   }
   function switchTab(which) {
     document.getElementById("tabLogin").classList.toggle("active", which === "login");
@@ -351,6 +416,7 @@
     applyTexts();
     switchTab(mode === "register" ? "register" : "login");
     document.getElementById("authModal").classList.add("show");
+    renderGoogleButton();
   }
   function close() {
     var m = document.getElementById("authModal");
