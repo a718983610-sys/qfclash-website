@@ -285,7 +285,7 @@
   // ---------- 各区块 ----------
   function loadMe() {
     return api("/security/me", { auth: true }).then(function (r) {
-      if (!r.ok) return;
+      if (!r.ok) { var ai0 = document.getElementById("acctInfo"); if (ai0) ai0.textContent = t("generic_fail"); return; }
       var d = r.data;
       document.getElementById("acctInfo").textContent =
         (d.email || "") + (d.id ? " · ID " + d.id : "") + (d.points ? " · " + d.points.balance : "");
@@ -297,7 +297,7 @@
       }
       var sw = document.getElementById("loginProtection");
       if (sw && typeof d.loginProtection === "boolean") sw.checked = d.loginProtection;
-    });
+    }).catch(function () { var ai = document.getElementById("acctInfo"); if (ai && !ai.textContent) ai.textContent = t("generic_fail"); });
   }
   // 存量号补设账户 ID：是否呈现以 GET /profile 回包的 username 为准
   // （/security/me 回包不含 username 字段，故判定走 /profile；提交走 PUT /profile，

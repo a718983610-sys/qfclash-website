@@ -529,7 +529,7 @@
       (next ? '<p class="muted">距「' + esc(next.name) + '」（' + next.pricePoints + ' 分）还差 ' + (next.pricePoints - balance) + ' 分</p><div class="progress"><i style="width:' + pct + '%"></i></div>'
             : '<p class="muted">当前积分已可兑换在售商品，请在下方查看。</p>') +
       '<p class="notice" style="margin-top:12px;">积分获取以客户端有效在线时长为准（每 3 小时 1 分，每日上限 8 分）；论坛每日积分与千赞奖励按官网积分规则计入。网页版仅提供积分查询与兑换服务。</p></div>' +
-      '<div class="card"><h2>可兑换商品</h2><div id="tierList">' + (tiers.length ? '' : '<p class="muted">暂无在售商品。</p>') + '</div><div id="redeemBox"></div></div>' +
+      '<div class="card"><h2>可兑换商品</h2><div id="tierList">' + (tiers.length ? '' : (prods.ok ? '<p class="muted">暂无在售商品。</p>' : '<p class="err">' + esc(prods.message || '商品加载失败，请稍后重试。') + '</p>')) + '</div><div id="redeemBox"></div></div>' +
       '<div class="card"><h2>我的兑换</h2><div id="myOrders"><p class="muted">正在加载…</p></div></div>' +
       '<div class="card"><h2>积分明细</h2><div id="ledger"><p class="muted">正在加载…</p></div></div>';
     if (tiers.length) {
@@ -710,6 +710,7 @@
       '<div class="card"><h2>论坛</h2><div class="chips" style="margin:0 0 10px;">' +
       '<button type="button" class="chip" data-board="" style="' + (!forumState.board ? 'background:#eef3fe;color:var(--brand);' : '') + '">全部板块</button>' +
       boards.map(function (b) { return '<button type="button" class="chip" data-board="' + esc(b.key || b.id) + '" style="' + (forumState.board === (b.key || b.id) ? 'background:#eef3fe;color:var(--brand);' : '') + '">' + esc(b.name || b.title || b.key) + '</button>'; }).join('') + '</div>' +
+      (boardsR.ok ? '' : '<p class="err small">' + esc(boardsR.message || '板块加载失败，请稍后重试。') + '</p>') +
       (forumState.campId ? '<p class="muted small">当前按营地筛选帖子。<button type="button" class="chip" id="clearCampFilter">清除营地筛选</button></p>' : '') +
       '<div class="list">' + (posts === null ? '<p class="err">' + esc(postsR.message) + '</p>' : (posts.length ? posts.map(postItemHtml).join('') : '<p class="muted">暂无帖子。</p>')) + '</div>' +
       (loggedIn() ? '<p style="margin-top:10px;"><button class="primary" id="newPostBtn" type="button">发布帖子</button></p><div id="composeBox"></div>' : '<p class="muted small">登录后可发布帖子。</p>') + '</div>' +
@@ -717,7 +718,7 @@
       (camps.length ? camps.map(function (c) {
         return '<div class="item"><span class="grow"><a href="#/forum/camp/' + esc(c.id) + '"><strong>' + esc(c.name) + '</strong></a><br><span class="muted small">' + esc(c.description || '') + '<br>成员 ' + esc(c.memberCount || 0) + ' · 帖子 ' + esc(c.postCount || 0) + (c.creator && c.creator.name ? ' · 创建者 ' + esc(c.creator.name) : '') + '</span></span>' +
           (loggedIn() ? '<button class="ghost" data-joincamp="' + esc(c.id) + '" data-joined="' + (c.joined ? '1' : '') + '">' + (c.joined ? '已加入' : '加入营地') + '</button>' : '') + '</div>';
-      }).join('') : '<p class="muted">暂无营地。</p>') + '</div></div>' +
+      }).join('') : (campsR.ok ? '<p class="muted">暂无营地。</p>' : '<p class="err">' + esc(campsR.message || '营地加载失败，请稍后重试。') + '</p>')) + '</div></div>' +
       '<div class="card"><h2>外站精选</h2><p class="muted small">来自外部平台的精选内容摘要，版权归原作者所有；点击可查看原文。</p><div id="extHighlights"><p class="muted">正在加载…</p></div></div>';
     body.querySelectorAll('[data-board]').forEach(function (b) { b.addEventListener('click', function () { forumState.board = b.getAttribute('data-board'); pageForum(route()); }); });
     var ccf = $('#clearCampFilter'); if (ccf) ccf.addEventListener('click', function () { forumState.campId = ''; pageForum(route()); });
@@ -748,6 +749,7 @@
     var box = $('#extHighlights'); if (!box) return;
     var r = await api('/forum/external?limit=10', { auth: false });
     var items = r.ok ? ((r.data && (r.data.posts || r.data.items)) || []) : [];
+    if (!r.ok) { box.innerHTML = '<p class="err">' + esc(r.message || '精选内容加载失败，请稍后重试。') + '</p>'; return; }
     if (!Array.isArray(items) || !items.length) { box.innerHTML = '<p class="muted">暂无精选内容。</p>'; return; }
     box.innerHTML = items.map(function (x) {
       var src = x.platform || x.source || '外部平台';
@@ -880,6 +882,7 @@
     });
     loadRequests(); loadFriends(); loadConversations();
   }
+  var friendActionErr = '';
   async function loadRequests() {
     var box = $('#reqBox'); if (!box) return;
     var r = await api('/friends/requests');
@@ -888,6 +891,7 @@
     var incoming = d.incoming || [];
     var outgoing = d.outgoing || [];
     box.innerHTML =
+      (friendActionErr ? '<p class="err">' + esc(friendActionErr) + '</p>' : '') +
       (incoming.length ? '<h3>收到的申请</h3>' + incoming.map(function (x) {
         var u = x.user || {};
         return '<div class="item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><strong>' + esc(u.nickname || '用户') + '</strong></span>' +
@@ -898,15 +902,15 @@
         return '<div class="item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><strong>' + esc(u.nickname || '用户') + '</strong><br><span class="muted small">等待对方处理</span></span></div>';
       }).join('') : '');
     fillAvatars(box);
-    box.querySelectorAll('[data-accept]').forEach(function (b) { b.addEventListener('click', async function () { await api('/friends/request/' + encodeURIComponent(b.getAttribute('data-accept')) + '/accept', { method: 'POST', body: {} }); loadRequests(); loadFriends(); }); });
-    box.querySelectorAll('[data-reject]').forEach(function (b) { b.addEventListener('click', async function () { await api('/friends/request/' + encodeURIComponent(b.getAttribute('data-reject')) + '/reject', { method: 'POST', body: {} }); loadRequests(); }); });
+    box.querySelectorAll('[data-accept]').forEach(function (b) { b.addEventListener('click', async function () { var rr = await api('/friends/request/' + encodeURIComponent(b.getAttribute('data-accept')) + '/accept', { method: 'POST', body: {} }); friendActionErr = rr.ok ? '' : (rr.message || '操作失败，请稍后重试。'); loadRequests(); loadFriends(); }); });
+    box.querySelectorAll('[data-reject]').forEach(function (b) { b.addEventListener('click', async function () { var rr = await api('/friends/request/' + encodeURIComponent(b.getAttribute('data-reject')) + '/reject', { method: 'POST', body: {} }); friendActionErr = rr.ok ? '' : (rr.message || '操作失败，请稍后重试。'); loadRequests(); }); });
   }
   async function loadFriends() {
     var box = $('#friendList'); if (!box) return;
     var r = await api('/friends');
     if (!r.ok) { box.innerHTML = '<p class="err">' + esc(r.message) + '</p>'; return; }
     var list = (r.data && r.data.friends) || [];
-    box.innerHTML = '<h3>我的好友</h3>' + (list.length ? '<div class="list">' + list.map(function (f) {
+    box.innerHTML = (friendActionErr ? '<p class="err">' + esc(friendActionErr) + '</p>' : '') + '<h3>我的好友</h3>' + (list.length ? '<div class="list">' + list.map(function (f) {
       if (f.kind === 'support_bot') {
         return '<div class="item"><span class="grow"><a href="#/support"><strong>' + esc(f.displayName || '智能客服') + '</strong></a> <span class="chip">系统联系人 · 置顶</span><br><span class="muted small">自动回复系统，点击进入智能客服。</span></span><a class="ghost" href="#/support">联系客服</a></div>';
       }
@@ -917,7 +921,7 @@
     fillAvatars(box);
     box.querySelectorAll('[data-del]').forEach(function (b) { b.addEventListener('click', async function () {
       if (!confirm('确定删除该好友吗？删除后将无法继续聊天。')) return;
-      await api('/friends/' + encodeURIComponent(b.getAttribute('data-del')), { method: 'DELETE' }); loadFriends();
+      var rr = await api('/friends/' + encodeURIComponent(b.getAttribute('data-del')), { method: 'DELETE' }); friendActionErr = rr.ok ? '' : (rr.message || '删除失败，请稍后重试。'); loadFriends();
     }); });
   }
   // 会话列表契约：GET /chat/conversations → {conversations:[{user:{userId,nickname,username?},lastMessageId,lastMessageAt,unreadCount}]}
@@ -1020,7 +1024,7 @@
     }
     async function pullHistory() {
       var hist = await api('/chat/messages?with=' + encodeURIComponent(peerId) + '&after=' + lastSeenId + '&limit=200');
-      if (!hist.ok) return;
+      if (!hist.ok) { if (lastSeenId === 0) { status.className = 'small err'; status.textContent = hist.message || '消息加载失败，请稍后重试。'; } return; }
       var msgs = (hist.data && hist.data.messages) || [];
       var maxId = lastSeenId;
       for (var i = 0; i < msgs.length; i++) {
@@ -1122,13 +1126,13 @@
     var pks = pkR.ok ? ((pkR.data && (pkR.data.passkeys || pkR.data.credentials)) || []) : [];
     view.innerHTML = '<div class="card"><h2>安全中心</h2><table class="kv">' +
       '<tr><td>登录保护</td><td>' + (d.loginProtection === false ? '未开启' : '已开启（环境异常时需邮箱验证码）') + '</td></tr>' +
-      '<tr><td>通行密钥</td><td>已登记 ' + (Array.isArray(pks) ? pks.length : 0) + ' 个</td></tr>' +
+      '<tr><td>通行密钥</td><td>' + (pkR.ok ? ('已登记 ' + (Array.isArray(pks) ? pks.length : 0) + ' 个') : '加载失败') + '</td></tr>' +
       '<tr><td>账号状态</td><td>' + esc(d.status || '正常') + '</td></tr></table>' +
       '<p class="muted small" style="margin-top:8px;">修改密码、换绑邮箱、通行密钥登记与注销账号等操作，请在客户端内完成；网页版提供状态查看。账户异常？可前往<a href="#/appeal/status">申诉状态查询</a>。</p></div>' +
       '<div class="card"><h2>登录设备</h2>' + (Array.isArray(devs) && devs.length ? '<div class="list">' + devs.map(function (x) {
         return '<div class="item"><span class="grow"><strong>' + esc(x.name || x.deviceName || '设备') + '</strong><br><span class="muted small">' + esc(x.platform || '') + ' · 最近活跃 ' + esc(fmtTs(x.lastActiveAt)) + '</span></span>' +
           (x.isCurrent ? '<span class="muted small">本设备</span>' : '<button class="ghost" data-devlogout="' + esc(x.id) + '">退出该设备</button>') + '</div>';
-      }).join('') + '</div>' : '<p class="muted">暂无设备记录。</p>') + '</div>';
+      }).join('') + '</div>' : (devR.ok ? '<p class="muted">暂无设备记录。</p>' : '<p class="err">' + esc(devR.message || '设备加载失败，请稍后重试。') + '</p>')) + '</div>';
     view.querySelectorAll('[data-devlogout]').forEach(function (b) { b.addEventListener('click', async function () {
       b.disabled = true;
       var r = await api('/security/devices/' + encodeURIComponent(b.getAttribute('data-devlogout')) + '/logout', { method: 'POST', body: {} });

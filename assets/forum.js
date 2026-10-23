@@ -238,7 +238,7 @@ async function loadBoards() {
     boards = list;
   } catch (e) {
     boards = [];
-    document.getElementById("postArea").innerHTML = '<div class="empty-box">' + esc(t("forum_soon")) + "</div>";
+    document.getElementById("postArea").innerHTML = '<div class="empty-box">' + esc(t("load_fail")) + "</div>";
     document.getElementById("pager").classList.add("hidden");
     return;
   }
