@@ -32,6 +32,7 @@
       v_pwd_match: "两次输入的密码不一致，请重新核对。",
       v_code: "请输入邮箱验证码。",
       code_sent: "验证码已发送至您的邮箱，请查收。",
+      resend_in: "{n} 秒后重发",
       reg_ok: "注册成功，已为您自动登录。",
       login_ok: "登录成功。",
       generic_fail: "操作失败，请稍后重试。",
@@ -86,6 +87,7 @@
       v_pwd_match: "The two passwords do not match. Please check and try again.",
       v_code: "Please enter the email verification code.",
       code_sent: "A verification code has been sent to your email. Please check your inbox.",
+      resend_in: "Resend in {n}s",
       reg_ok: "Registration completed. You are now signed in.",
       login_ok: "Signed in successfully.",
       generic_fail: "The operation failed. Please try again later.",
@@ -408,8 +410,10 @@
   }
   function doStepUpResend() {
     if (!stepUpState.token) return;
+    var btn = document.getElementById("liStepUpResend");
     post("/auth/stepup/resend", { stepUpToken: stepUpState.token }).then(function (r) {
       showAlert(r.ok ? t("code_sent") : failNotice(r.data), r.ok);
+      if (r.ok || r.status === 429) armCodeBtn(btn, 60);
     }).catch(function () { showAlert(t("generic_fail"), false); });
   }
   function doResetRequest() {
@@ -418,6 +422,7 @@
     if (!validEmail(email)) { fieldErr("rsEmail", "rsEmailErr", t("v_email")); return; }
     post("/auth/password/reset/request-code", { email: email }).then(function (r) {
       showAlert(r.ok ? t("code_sent") : failNotice(r.data), r.ok);
+      if (r.ok || r.status === 429) armCodeBtn(document.getElementById("rsSendCode"), 60);
     }).catch(function () { showAlert(t("generic_fail"), false); });
   }
   function doResetConfirm() {
@@ -577,6 +582,7 @@
       if (!identifier) { fieldErr("liEmail", "liEmailErr", t("v_identifier")); return; }
       post("/auth/login/request-code", { email: identifier, identifier: identifier }).then(function (r) {
         showAlert(r.ok ? t("code_sent") : failNotice(r.data), r.ok);
+        if (r.ok || r.status === 429) armCodeBtn(document.getElementById("liGetCode"), 60);
       }).catch(function () { showAlert(t("generic_fail"), false); });
     });
     document.getElementById("liStepUpSubmit").addEventListener("click", doStepUpVerify);
@@ -591,8 +597,8 @@
       clearErr("rgEmail", "rgEmailErr");
       if (!validEmail(email)) { fieldErr("rgEmail", "rgEmailErr", t("v_email")); return; }
       post("/auth/register/request-code", { email: email }).then(function (r) {
-        if (r.ok) { regState.email = email; showAlert(t("code_sent"), true); }
-        else showAlert(serverMsg(r.data), false);
+        if (r.ok) { regState.email = email; showAlert(t("code_sent"), true); armCodeBtn(document.getElementById("rgSendCode"), 60); }
+        else { showAlert(serverMsg(r.data), false); if (r.status === 429) armCodeBtn(document.getElementById("rgSendCode"), 60); }
       }).catch(function () { showAlert(t("generic_fail"), false); });
     });
     document.getElementById("rgComplete").addEventListener("click", doRegister);
@@ -646,6 +652,27 @@
     box.className = "alert show " + (ok ? "ok" : "err");
   }
   function hideAlert() { var box = document.getElementById("authAlert"); if (box) box.className = "alert"; }
+  // 发码成功（或被服务端冷却拦下）后给按钮挂倒计时：与服务端 60 秒发码冷却一致，
+  // 期间禁用并显示剩余秒数，避免连点必吃 429 且用户无预期。
+  function armCodeBtn(btn, seconds) {
+    if (!btn || btn.getAttribute("data-cooling") === "1") return;
+    var left = seconds || 60;
+    if (!btn.getAttribute("data-label")) btn.setAttribute("data-label", btn.textContent);
+    btn.setAttribute("data-cooling", "1");
+    btn.disabled = true;
+    btn.textContent = t("resend_in").replace("{n}", left);
+    var timer = setInterval(function () {
+      left -= 1;
+      if (left <= 0) {
+        clearInterval(timer);
+        btn.removeAttribute("data-cooling");
+        btn.disabled = false;
+        btn.textContent = btn.getAttribute("data-label");
+        return;
+      }
+      btn.textContent = t("resend_in").replace("{n}", left);
+    }, 1000);
+  }
   function fieldErr(inputId, errId, msg) {
     var i = document.getElementById(inputId), e = document.getElementById(errId);
     if (i) i.classList.add("invalid");

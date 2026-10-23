@@ -81,6 +81,21 @@
     }
     return { ok: res.ok && !(data && data.ok === false), status: res.status, data: data, code: data && data.code, message: (data && (data.message || data.error)) || (res.ok ? '' : '请求失败（' + res.status + '），请稍后重试。') };
   }
+  // 发码倒计时：与服务端 60 秒发码冷却一致。发送成功或被冷却拦下（429）后调用，
+  // 期间禁用按钮并显示剩余秒数，避免连点必吃限流且用户无预期。
+  function armCodeCooldown(btn, seconds) {
+    if (!btn || btn.disabled) return;
+    var left = seconds || 60;
+    var label = btn.getAttribute('data-label') || btn.textContent;
+    btn.setAttribute('data-label', label);
+    btn.disabled = true;
+    btn.textContent = '重新发送（' + left + ' 秒）';
+    var timer = setInterval(function () {
+      left -= 1;
+      if (left <= 0) { clearInterval(timer); btn.disabled = false; btn.textContent = label; return; }
+      btn.textContent = '重新发送（' + left + ' 秒）';
+    }, 1000);
+  }
   // crypto-adapter 是 ES 模块（defer 执行），晚于本经典脚本：就绪后补接线
   function wireCrypto() {
     if (!(window.QFCrypto && QFCrypto.setApi)) return false;
@@ -98,13 +113,46 @@
   }
 
   // ---------- 头像（带令牌取图，失败回落占位） ----------
-  async function avatarUrl(path) {
+  // 断链主因（2026-10-24 修复）：服务端头像接口回 cache-control: private, max-age=300，
+  // 且头像 URL 恒定不变。此前 avatarUrl 用默认缓存的 fetch 取图，上传后 300 秒内
+  // 重新取图会直接回放浏览器 HTTP 缓存里的旧图字节，页面怎么刷新都还是旧头像。
+  // 对策：取图一律 cache:'no-store' 绕过 HTTP 缓存，并按资料的 avatarUpdatedAt 拼
+  // ?v= 版本参数击穿任何中间缓存；上传成功后以 PUT 回包的 avatarUpdatedAt 为准
+  // 更新 myAvatarVer，全站头像位（抽屉/我的/论坛/好友/会话）统一以此刷新。
+  var myAvatarVer = 0;   // 本人头像版本（= 服务端 avatarUpdatedAt，秒；GET/PUT /profile 回包维护）
+  var avatarBust = 0;    // 无版本信息时的兜底击穿计数（每次成功上传 +1）
+  async function avatarUrl(path, ver) {
     try {
       var headers = {}; var tok = storeGet('qf_access_token'); if (tok) headers['Authorization'] = 'Bearer ' + tok;
-      var res = await fetch(API + path, { headers: headers });
+      var v = (ver != null && ver !== '') ? ver : avatarBust;
+      var url = API + path + (path.indexOf('?') >= 0 ? '&' : '?') + 'v=' + encodeURIComponent(v);
+      var res = await fetch(url, { headers: headers, cache: 'no-store' });
       if (!res.ok) return '';
       return URL.createObjectURL(await res.blob());
     } catch (e) { return ''; }
+  }
+  // 把头像图填进占位槽：取到新图才替换内容（失败保留占位/旧图不闪烁），旧 blob URL 及时回收。
+  function showAvatar(slot, path, ver, size) {
+    if (!slot) return Promise.resolve();
+    return avatarUrl(path, ver).then(function (u) {
+      if (!u) return;
+      if (!slot.isConnected) { URL.revokeObjectURL(u); return; }
+      var old = slot.getAttribute('data-obj-url');
+      slot.innerHTML = '<img class="avatar" style="width:' + size + 'px;height:' + size + 'px;" alt="头像" src="' + u + '">';
+      if (old) URL.revokeObjectURL(old);
+      slot.setAttribute('data-obj-url', u);
+    });
+  }
+  // 列表头像位（好友/申请/搜索/会话）：占位 HTML + 批量填充，数据源与各页一致，
+  // 均为 GET /profile/:userId/avatar，版本取列表回包自带的 avatarUpdatedAt。
+  function avatarSlotHtml(uid, ver, has, name, size) {
+    return '<span data-avatar-uid="' + esc(uid) + '" data-avatar-ver="' + esc(ver == null ? '' : ver) + '" data-avatar-has="' + (has ? '1' : '0') + '" data-avatar-size="' + size + '"><span class="avatar-ph" style="width:' + size + 'px;height:' + size + 'px;">' + esc((name || 'Q').slice(0, 1)) + '</span></span>';
+  }
+  function fillAvatars(root) {
+    (root || document).querySelectorAll('[data-avatar-uid]').forEach(function (slot) {
+      if (slot.getAttribute('data-avatar-has') !== '1') return;
+      showAvatar(slot, '/profile/' + encodeURIComponent(slot.getAttribute('data-avatar-uid')) + '/avatar', slot.getAttribute('data-avatar-ver') || '', Number(slot.getAttribute('data-avatar-size')) || 40);
+    });
   }
 
   // ---------- 维护状态（L-02）：与 App 同一清单；maintenance=true 显示维护页，恢复自动可用 ----------
@@ -140,9 +188,9 @@
     var btn = $('#logoutBtn');
     if (loggedIn()) {
       var me = meBasic();
-      box.innerHTML = '<span class="avatar-ph" id="drawerAvatarPh">' + esc((me.nickname || 'Q').slice(0, 1)) + '</span>' +
+      box.innerHTML = '<span id="drawerAvatar"><span class="avatar-ph">' + esc((me.nickname || 'Q').slice(0, 1)) + '</span></span>' +
         '<span class="who"><span class="nick">' + esc(me.nickname || '用户') + '</span><br><span class="uid">' + esc(me.username ? '账户 ID：' + me.username : '') + '</span></span>';
-      avatarUrl('/profile/avatar').then(function (u) { if (u) box.innerHTML = '<img class="avatar" alt="头像" src="' + u + '">' + '<span class="who"><span class="nick">' + esc(me.nickname || '用户') + '</span><br><span class="uid">' + esc(me.username ? '账户 ID：' + me.username : '') + '</span></span>'; });
+      showAvatar($('#drawerAvatar'), '/profile/avatar', myAvatarVer, 44);
       btn.hidden = false;
     } else {
       box.innerHTML = '<span class="login-entry">登录</span>';
@@ -307,7 +355,17 @@
       if (r.ok && r.data && r.data.accessToken) { stepUp.token = ''; finishLogin(r.data, remember); }
       else { $('#stepUpErr').textContent = r.message || '验证失败，请重新输入。'; var b = $('#loginBlock'); if (b) b.innerHTML = authBlockHtml(r); }
     });
-    $('#stepUpResend').addEventListener('click', async function () { await api('/auth/stepup/resend', { method: 'POST', auth: false, body: { stepUpToken: stepUp.token } }); });
+    $('#stepUpResend').addEventListener('click', async function () {
+      var btn = this; var errEl = $('#stepUpErr');
+      var r = await api('/auth/stepup/resend', { method: 'POST', auth: false, body: { stepUpToken: stepUp.token } });
+      if (r.ok) {
+        if (errEl) { errEl.className = 'ok'; errEl.textContent = '验证码已重新发送至您的绑定邮箱，请查收。'; }
+        armCodeCooldown(btn, 60);
+      } else {
+        if (errEl) { errEl.className = 'err'; errEl.textContent = r.message || '重新发送失败，请稍后重试。'; }
+        if (r.status === 429) armCodeCooldown(btn, 60);
+      }
+    });
   }
   function showCompletion(remember) {
     var box = $('#completionBox'); if (!box) return;
@@ -340,11 +398,13 @@
       '<button class="primary" type="submit">注册并登录</button></form>' +
       '<p class="muted small">已有账号？<a href="#/login">前往登录</a></p></div>';
     $('#regSendCode').addEventListener('click', async function () {
+      var btn = this;
       var email = String(new FormData($('#regForm')).get('email')).trim();
       var err = $('#regErr'), ok = $('#regOk'); err.textContent = ''; ok.textContent = '';
       if (!email) { err.textContent = '请先填写邮箱。'; return; }
       var r = await api('/auth/register/request-code', { method: 'POST', auth: false, body: { email: email } });
-      if (r.ok) ok.textContent = '验证码已发送到您的邮箱，请查收后填写。'; else err.textContent = r.message || '验证码发送失败，请稍后重试。';
+      if (r.ok) { ok.textContent = '验证码已发送到您的邮箱，请查收后填写。'; armCodeCooldown(btn, 60); }
+      else { err.textContent = r.message || '验证码发送失败，请稍后重试。'; if (r.status === 429) armCodeCooldown(btn, 60); }
     });
     $('#regForm').addEventListener('submit', async function (ev) {
       ev.preventDefault();
@@ -375,11 +435,13 @@
       '<button class="primary" type="submit">确认重置密码</button></form>' +
       '<p class="row wrap" style="margin-top:10px;"><a href="#/login">返回登录</a><a href="#/appeal/recovery">邮箱不可用？提交人工找回申诉</a></p></div>';
     $('#resetSendCode').addEventListener('click', async function () {
+      var btn = this;
       var email = String(new FormData($('#resetForm')).get('email')).trim();
       var err = $('#resetErr'), ok = $('#resetOk'); err.textContent = ''; ok.textContent = '';
       if (!email) { err.textContent = '请先填写邮箱。'; return; }
       var r = await api('/auth/password/reset/request-code', { method: 'POST', auth: false, body: { email: email } });
-      if (r.ok) ok.textContent = '如果这个邮箱有账号，验证码已经发送，请查收。'; else err.textContent = r.message || '发送失败，请稍后重试。';
+      if (r.ok) { ok.textContent = '如果这个邮箱有账号，验证码已经发送，请查收。'; armCodeCooldown(btn, 60); }
+      else { err.textContent = r.message || '发送失败，请稍后重试。'; if (r.status === 429) armCodeCooldown(btn, 60); }
     });
     $('#resetForm').addEventListener('submit', async function (ev) {
       ev.preventDefault();
@@ -601,7 +663,7 @@
     if (r.arg === 'post' && r.sub) return forumPostPage(r.sub);
     if (r.arg === 'camp' && r.sub) return forumCampPage(r.sub);
     view.innerHTML = forumHeaderHtml() + forumTabsHtml(forumState.tab) + '<div id="forumBody"><p class="muted">正在加载…</p></div>';
-    if (loggedIn()) avatarUrl('/profile/avatar').then(function (u) { var s = $('#forumAvatar'); if (u && s) s.innerHTML = '<img class="avatar" style="width:44px;height:44px;" alt="头像" src="' + u + '">'; });
+    if (loggedIn()) showAvatar($('#forumAvatar'), '/profile/avatar', myAvatarVer, 44);
     view.querySelectorAll('[data-ftab]').forEach(function (b) { b.addEventListener('click', function () { forumState.tab = b.getAttribute('data-ftab'); pageForum(route()); }); });
     var body = $('#forumBody'); if (!body) return;
     if (forumState.tab === 'mine' || forumState.tab === 'reviews') {
@@ -726,7 +788,7 @@
       '<div class="card"><h2>发表的评价</h2><div class="list">' + ((d.comments || []).length ? d.comments.map(function (c) {
         return '<div class="item"><span class="grow"><a href="#/forum/post/' + esc(c.postId) + '"><strong>' + esc(c.postTitle || '帖子') + '</strong></a><br><span class="muted">' + esc(c.content) + '</span><br><span class="muted small">' + esc(fmtTs(c.createdAt)) + '</span></span></div>';
       }).join('') : '<p class="muted">暂无评价。</p>') + '</div></div>';
-    avatarUrl('/profile/' + encodeURIComponent(userId) + '/avatar').then(function (url) { var s = $('#fuAvatar'); if (url && s) s.innerHTML = '<img class="avatar" style="width:44px;height:44px;" alt="头像" src="' + url + '">'; });
+    showAvatar($('#fuAvatar'), '/profile/' + encodeURIComponent(userId) + '/avatar', (u && u.avatarUpdatedAt) || '', 44);
   }
   async function forumPostPage(id) {
     view.innerHTML = '<div class="card"><p class="muted">正在加载…</p></div>';
@@ -807,8 +869,9 @@
       if (!r.ok) { out.innerHTML = '<p class="err">' + esc(r.message) + '</p>'; return; }
       var users = (r.data && r.data.users) || [];
       out.innerHTML = users.length ? '<div class="list">' + users.map(function (u) {
-        return '<div class="item"><span class="grow"><strong>' + esc(u.nickname || '用户') + '</strong></span><button class="primary" data-addfriend="' + esc(u.userId) + '" type="button">添加好友</button></div>';
+        return '<div class="item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><strong>' + esc(u.nickname || '用户') + '</strong></span><button class="primary" data-addfriend="' + esc(u.userId) + '" type="button">添加好友</button></div>';
       }).join('') + '</div>' : '<p class="muted">未找到对应用户。请确认账户 ID 或邮箱无误（仅支持精确搜索）。</p>';
+      fillAvatars(out);
       out.querySelectorAll('[data-addfriend]').forEach(function (b) { b.addEventListener('click', async function () {
         var rr = await api('/friends/request', { method: 'POST', body: { userId: Number(b.getAttribute('data-addfriend')) } });
         out.innerHTML = '<p class="' + (rr.ok ? 'ok' : 'err') + '">' + esc(rr.ok ? (rr.data && rr.data.status === 'accepted' ? '你们已经成为好友。' : '好友申请已发送。') : rr.message) + '</p>';
@@ -827,13 +890,14 @@
     box.innerHTML =
       (incoming.length ? '<h3>收到的申请</h3>' + incoming.map(function (x) {
         var u = x.user || {};
-        return '<div class="item"><span class="grow"><strong>' + esc(u.nickname || '用户') + '</strong></span>' +
+        return '<div class="item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><strong>' + esc(u.nickname || '用户') + '</strong></span>' +
           '<button class="ghost" data-accept="' + esc(x.id) + '">同意</button><button class="ghost" data-reject="' + esc(x.id) + '">拒绝</button></div>';
       }).join('') : '') +
       (outgoing.length ? '<h3>我发出的申请</h3>' + outgoing.map(function (x) {
         var u = x.user || {};
-        return '<div class="item"><span class="grow"><strong>' + esc(u.nickname || '用户') + '</strong><br><span class="muted small">等待对方处理</span></span></div>';
+        return '<div class="item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><strong>' + esc(u.nickname || '用户') + '</strong><br><span class="muted small">等待对方处理</span></span></div>';
       }).join('') : '');
+    fillAvatars(box);
     box.querySelectorAll('[data-accept]').forEach(function (b) { b.addEventListener('click', async function () { await api('/friends/request/' + encodeURIComponent(b.getAttribute('data-accept')) + '/accept', { method: 'POST', body: {} }); loadRequests(); loadFriends(); }); });
     box.querySelectorAll('[data-reject]').forEach(function (b) { b.addEventListener('click', async function () { await api('/friends/request/' + encodeURIComponent(b.getAttribute('data-reject')) + '/reject', { method: 'POST', body: {} }); loadRequests(); }); });
   }
@@ -847,9 +911,10 @@
         return '<div class="item"><span class="grow"><a href="#/support"><strong>' + esc(f.displayName || '智能客服') + '</strong></a> <span class="chip">系统联系人 · 置顶</span><br><span class="muted small">自动回复系统，点击进入智能客服。</span></span><a class="ghost" href="#/support">联系客服</a></div>';
       }
       var uid = f.userId;
-      return '<div class="item"><span class="grow"><a href="#/chat/' + esc(uid) + '"><strong>' + esc(f.nickname || '用户') + '</strong></a>' + (f.username ? '<br><span class="muted small">账户 ID：' + esc(f.username) + '</span>' : '') + '</span>' +
+      return '<div class="item">' + avatarSlotHtml(uid, f.avatarUpdatedAt, f.hasAvatar, f.nickname, 40) + '<span class="grow"><a href="#/chat/' + esc(uid) + '"><strong>' + esc(f.nickname || '用户') + '</strong></a>' + (f.username ? '<br><span class="muted small">账户 ID：' + esc(f.username) + '</span>' : '') + '</span>' +
         '<a class="ghost" href="#/chat/' + esc(uid) + '">聊天</a><button class="ghost" data-del="' + esc(uid) + '">删除</button></div>';
     }).join('') + '</div>' : '<p class="muted">暂无好友。可通过上方搜索添加。</p>');
+    fillAvatars(box);
     box.querySelectorAll('[data-del]').forEach(function (b) { b.addEventListener('click', async function () {
       if (!confirm('确定删除该好友吗？删除后将无法继续聊天。')) return;
       await api('/friends/' + encodeURIComponent(b.getAttribute('data-del')), { method: 'DELETE' }); loadFriends();
@@ -863,8 +928,9 @@
     var list = (r.data && r.data.conversations) || [];
     box.innerHTML = list.length ? '<div class="list">' + list.map(function (c) {
       var u = c.user || {};
-      return '<a class="item" href="#/chat/' + esc(u.userId) + '"><span class="grow"><strong>' + esc(u.nickname || '用户') + '</strong><br><span class="muted small">最近消息 ' + esc(fmtTs(c.lastMessageAt)) + '</span></span>' + (c.unreadCount ? '<span class="chip" style="background:#eef3fe;color:var(--brand);">' + esc(c.unreadCount) + ' 条未读</span>' : '') + '<span aria-hidden="true">›</span></a>';
+      return '<a class="item" href="#/chat/' + esc(u.userId) + '">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><strong>' + esc(u.nickname || '用户') + '</strong><br><span class="muted small">最近消息 ' + esc(fmtTs(c.lastMessageAt)) + '</span></span>' + (c.unreadCount ? '<span class="chip" style="background:#eef3fe;color:var(--brand);">' + esc(c.unreadCount) + ' 条未读</span>' : '') + '<span aria-hidden="true">›</span></a>';
     }).join('') + '</div>' : '<p class="muted">暂无会话。可从好友列表进入聊天。</p>';
+    fillAvatars(box);
   }
 
   // ---------- 聊天 ----------
@@ -893,7 +959,7 @@
     if (!loggedIn()) return needLogin('聊天');
     if (!peerId) { location.hash = '#/friends'; return; }
     if (String(peerId) === 'support') { location.hash = '#/support'; return; }
-    view.innerHTML = '<div class="card"><div class="row"><a class="ghost" href="#/friends">返回好友</a><strong id="chatPeerName">聊天</strong></div>' +
+    view.innerHTML = '<div class="card"><div class="row"><a class="ghost" href="#/friends">返回好友</a><span id="chatPeerAvatar"></span><strong id="chatPeerName">聊天</strong></div>' +
       '<p class="notice" style="margin-top:10px;">' + CHAT_DISCLOSURE + '</p>' +
       '<div id="vaultBox"></div>' +
       '<div class="chatlog" id="chatLog"><p class="bubble sys">消息经端对端加密传输，服务器仅中继密文。</p></div>' +
@@ -911,6 +977,7 @@
       var list = (r.ok && r.data && r.data.conversations) || [];
       var hit = list.filter(function (c) { return c.user && String(c.user.userId) === String(peerId); })[0];
       var nameEl = $('#chatPeerName'); if (nameEl && hit) nameEl.textContent = '与 ' + (hit.user.nickname || '好友') + ' 的聊天';
+      if (hit && hit.user.hasAvatar) showAvatar($('#chatPeerAvatar'), '/profile/' + encodeURIComponent(peerId) + '/avatar', hit.user.avatarUpdatedAt || '', 40);
     });
     function renderReactions() {
       var bar = $('#reactionBar'); if (!bar) return;
@@ -1063,7 +1130,12 @@
           (x.isCurrent ? '<span class="muted small">本设备</span>' : '<button class="ghost" data-devlogout="' + esc(x.id) + '">退出该设备</button>') + '</div>';
       }).join('') + '</div>' : '<p class="muted">暂无设备记录。</p>') + '</div>';
     view.querySelectorAll('[data-devlogout]').forEach(function (b) { b.addEventListener('click', async function () {
-      await api('/security/devices/' + encodeURIComponent(b.getAttribute('data-devlogout')) + '/logout', { method: 'POST', body: {} }); pageSecurity();
+      b.disabled = true;
+      var r = await api('/security/devices/' + encodeURIComponent(b.getAttribute('data-devlogout')) + '/logout', { method: 'POST', body: {} });
+      if (r.ok) { pageSecurity(); return; }
+      b.disabled = false;
+      var e = document.createElement('p'); e.className = 'err small'; e.textContent = r.message || '退出该设备失败，请稍后重试。';
+      b.parentNode.appendChild(e);
     }); });
   }
 
@@ -1154,6 +1226,9 @@
   // ---------- 我的 ----------
   // 契约：GET /profile → ownView {userId,email,username,nickname,effectiveNickname,hasAvatar,...}
   // PUT /profile {nickname} / {avatar:{mime,dataBase64}|null}；头像 ≤200KB（AVATAR_MAX_BYTES），超出先在本地压缩
+  // 头像提示定版文案（正式口吻，超限与失败各一句，全站头像报错统一使用）：
+  var AVATAR_TOO_LARGE_TEXT = '头像大小超过 200KB 上限，压缩后仍不符合要求，请更换较小的图片后重试。';
+  var AVATAR_FAIL_TEXT = '头像上传失败，请检查网络连接后重试。';
   async function pageMe() {
     if (!loggedIn()) return needLogin('个人资料');
     view.innerHTML = '<div class="card"><h2>个人资料</h2><p class="muted">正在加载…</p></div>';
@@ -1161,6 +1236,7 @@
     var pts = await api('/points/me');
     if (!r.ok) { view.innerHTML = '<div class="card"><h2>个人资料</h2><p class="err">' + esc(r.message) + '</p></div>'; return; }
     var p = r.data || {};
+    if (p.avatarUpdatedAt) myAvatarVer = p.avatarUpdatedAt;
     var nick = p.nickname || p.effectiveNickname || '';
     if (nick) saveSession({ nickname: nick, username: p.username || '', email: p.email || '', userId: p.userId }, !!localStorage.getItem('qf_access_token')), renderIdentity();
     var uid = p.userId != null ? p.userId : myUserId();
@@ -1174,7 +1250,7 @@
       '<p class="muted small">头像大小上限 200KB；超出时将先在本地压缩（缩放为 JPEG）再上传。</p><p class="small" id="avatarSt" role="status"></p></div>' +
       '<div class="card"><h2>我的个人二维码</h2><div id="qrBox"><p class="muted">正在生成…</p></div><p class="muted small">二维码内容为您的账户 ID，好友可扫码后按账户 ID 精确搜索添加您。</p></div>' +
       '<div class="card"><h2>我的论坛主页</h2><p class="muted">查看公开个人主页：' + (uid ? '<a href="#/forum/user/' + esc(uid) + '">前往我的个人主页</a>' : '—') + '</p></div>';
-    avatarUrl('/profile/avatar').then(function (u) { var s = $('#meAvatar'); if (u && s) s.innerHTML = '<img class="avatar" style="width:44px;height:44px;" alt="头像" src="' + u + '">'; });
+    if (p.hasAvatar) showAvatar($('#meAvatar'), '/profile/avatar', myAvatarVer, 44);
     renderQr(uid);
     $('#nickForm').addEventListener('submit', async function (ev) {
       ev.preventDefault();
@@ -1190,9 +1266,25 @@
       try {
         var payload = await prepareAvatar(f);
         var rr = await api('/profile', { method: 'PUT', body: { avatar: payload } });
-        if (rr.ok) { st.className = 'small ok'; st.textContent = '头像已更新。'; renderIdentity(); pageMe(); }
-        else { st.className = 'small err'; st.textContent = rr.message || '头像上传失败。'; }
-      } catch (e) { st.className = 'small err'; st.textContent = e.message || '头像处理失败。'; }
+        if (rr.ok && !(rr.data && rr.data.hasAvatar === false)) {
+          // 回显以服务端回包为准：版本取 PUT 回包的 avatarUpdatedAt，就地刷新本页与抽屉头像位。
+          // 此前成功后整页重渲 pageMe() 会把「头像已更新。」提示一并冲掉，且旧取图走
+          // HTTP 缓存拿到旧图，用户看到的是“提示没了、头像也没变”。
+          if (rr.data && rr.data.avatarUpdatedAt) myAvatarVer = rr.data.avatarUpdatedAt;
+          else myAvatarVer = Math.floor(Date.now() / 1000);
+          avatarBust++;
+          showAvatar($('#meAvatar'), '/profile/avatar', myAvatarVer, 44);
+          renderIdentity();
+          st.className = 'small ok'; st.textContent = '头像已更新。';
+        } else if (rr.code === 'AVATAR_TOO_LARGE') {
+          st.className = 'small err'; st.textContent = AVATAR_TOO_LARGE_TEXT;
+        } else {
+          st.className = 'small err'; st.textContent = AVATAR_FAIL_TEXT;
+        }
+      } catch (e) {
+        st.className = 'small err';
+        st.textContent = (e && e.code === 'AVATAR_TOO_LARGE') ? AVATAR_TOO_LARGE_TEXT : AVATAR_FAIL_TEXT;
+      }
     });
   }
   // 头像预处理：≤200KB 直接传；超出用 canvas 缩放到最长边 512 并以 JPEG 递减质量压缩到 ≤200KB
@@ -1213,7 +1305,7 @@
         if (blob && blob.size <= MAX) break;
         q -= 0.15;
       }
-      if (!blob || blob.size > MAX) throw new Error('图片压缩后仍超过 200KB，请换一张更小的图片。');
+      if (!blob || blob.size > MAX) { var tooBig = new Error(AVATAR_TOO_LARGE_TEXT); tooBig.code = 'AVATAR_TOO_LARGE'; throw tooBig; }
       return { mime: 'image/jpeg', dataBase64: b64OfBytes(new Uint8Array(await blob.arrayBuffer())) };
     } finally { URL.revokeObjectURL(url); }
   }
