@@ -106,12 +106,23 @@ footer .lic{margin-top:16px;line-height:1.9}
   .hero h1{font-size:34px}
   .hero{padding:52px 0 44px}
   .nav nav{display:none}
-  .nav{gap:10px;flex-wrap:nowrap}
-  .nav .nav-auth{margin-left:auto}
-  .nav .nav-side{gap:8px}
-  .nav .nav-side a.nav-forum{padding:3px 11px;font-size:14px}
-  .lang-btn{padding:4px 10px;font-size:13px}
+  .nav{gap:8px;flex-wrap:nowrap}
+  .brand{font-size:17px}
+  .brand img{width:30px;height:30px}
+  .nav .nav-auth{margin-left:auto;gap:6px}
+  .nav .nav-auth .who{max-width:72px}
+  .nav .nav-auth .small-btn{padding:4px 9px;font-size:13px}
+  .nav .nav-auth .btn-blue{padding:5px 12px !important;font-size:13px !important}
+  .nav .nav-side{gap:6px}
+  .nav .nav-side a.nav-forum{padding:3px 9px;font-size:13px}
+  .lang-btn{padding:3px 8px;font-size:12.5px}
   section{padding:42px 0}
+}
+
+@media (max-width:560px){
+  .nav .nav-auth .who{display:none}
+  .nav .nav-side a.nav-forum[href="forum.html"]{display:none}
+  .nav .lang-btn{display:none}
 }
 
 /* Message / feedback form */
@@ -226,6 +237,8 @@ input,textarea,select{transition:border-color .2s ease,box-shadow .2s ease}
 
 /* ===== 导航账号区与账号弹窗 ===== */
 .nav-auth{display:flex;align-items:center;gap:8px;margin-left:4px}
+.nav-auth .small-btn{white-space:nowrap}
+.nav a.nav-forum{white-space:nowrap}
 .nav-auth .who{font-size:14px;color:var(--gray);max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .auth-tabs{display:flex;gap:8px;margin-bottom:18px}
 .auth-tab{flex:1;border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px 0;font-size:15px;font-weight:600;cursor:pointer;color:var(--gray)}
