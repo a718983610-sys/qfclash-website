@@ -43,14 +43,14 @@ const I18N = {
     dl_sub: "请选择与您的设备对应的平台版本进行下载。应用内「检查更新」同样指向官方仓库的对应平台发布。",
     dl_android_t: "Android 版", dl_android_p: "适用于 Android 手机与平板设备，下载 APK 安装包后直接安装。",
     dl_windows_t: "Windows 版", dl_windows_p: "适用于 Windows 电脑，提供安装版与便携版两种形式，可按需选择。",
-    dl_btn_android: "下载最新版", dl_btn_windows: "下载最新版",
+    dl_btn_android: "下载最新版", dl_btn_windows: "下载最新版", dl_zip_alt: "或下载 ZIP 压缩包（免安装）",
     dl_safe: "每个安装包均附有 SHA-256 校验值，下载后可对照校验，确保文件完整无误。",
     dl_region: "本软件仅面向允许使用该类服务的国家或地区提供服务。您所在地区如不允许使用该类服务，请勿下载或使用。",
     points_title: "积分规则",
     points_sub: "登录用户在使用 QFClash 期间可累计积分，积分可用于兑换美元奖励。现行规则公示如下：",
     r1: "积分按有效使用时长累计：连接使用每满 3 小时得 1 分，未满 3 小时的部分按分钟累计不清零，进度在应用内随时可见。",
     r2: "积分在 Android 与 Windows 双平台互通，同一账号共用一个积分账户；同一时段在两台设备同时使用，仅按一份时长计算。",
-    r3: "每日积分获取上限为 8 分。",
+    r3: "每日积分获取上限为 8 分；每台设备每日最多获得 8 分，账号上限与设备上限同时适用，任一达到上限即当日不再计分。",
     r4: "兑换标准：1000 分可兑换 $5 美元奖励；1600 分可兑换 $10 美元奖励。商品以应用内实际上架为准。",
     r5: "兑换前需二次确认；奖品经人工审核后发放，兑换记录可在应用内「我的兑换」中查看。",
     r6: "登录状态不受限制：登录用户不限使用时长，全部功能完整开放，并可累计积分；访客每日可免费使用 2 小时，且不累计积分。",
@@ -105,14 +105,14 @@ const I18N = {
     dl_sub: "Please choose the version that matches your device. The in-app update check likewise points to the corresponding platform releases in the official repository.",
     dl_android_t: "Android", dl_android_p: "For Android phones and tablets. Download the APK package and install it directly.",
     dl_windows_t: "Windows", dl_windows_p: "For Windows PCs, available as both an installer and a portable package.",
-    dl_btn_android: "Download Latest", dl_btn_windows: "Download Latest",
+    dl_btn_android: "Download Latest", dl_btn_windows: "Download Latest", dl_zip_alt: "Or download the ZIP package (portable)",
     dl_safe: "Every package is published together with its SHA-256 checksum, which you may verify after downloading to confirm the file is complete and unmodified.",
     dl_region: "This software is offered only in countries and regions where the use of such services is permitted. If the use of such services is not permitted in your region, please do not download or use this software.",
     points_title: "Points Rules",
     points_sub: "Signed-in users earn points while using QFClash, and points can be redeemed for USD rewards. The current rules are published below:",
     r1: "Points accrue by effective usage time: 1 point for every full 3 hours of connected use. Partial time is accumulated by the minute and never reset; progress is visible in the app at any time.",
     r2: "Points are shared between the Android and Windows versions under a single account. Simultaneous use on two devices during the same period counts once only.",
-    r3: "A maximum of 8 points may be earned per day.",
+    r3: "A maximum of 8 points may be earned per day; each device may also earn at most 8 points per day. Both the account cap and the device cap apply, and accrual stops for the day once either cap is reached.",
     r4: "Redemption: 1,000 points for a $5 reward; 1,600 points for a $10 reward. Products are subject to actual availability in the app.",
     r5: "Redemption requires a second confirmation. Rewards are issued after manual review, and redemption history can be viewed under \u201CMy Redemptions\u201D in the app.",
     r6: "Signed-in status is unrestricted: signed-in users have no time limit, full access to all features, and earn points. Guests may use QFClash free of charge for 2 hours per day and do not earn points.",
@@ -160,6 +160,8 @@ function applyLang(lang) {
   function lang() { return document.documentElement.lang === "en" ? "en" : "zh"; }
   function t(key) { return (I18N[lang()] || I18N.zh)[key] || key; }
   function webDeviceId() {
+    // 与 auth.js 共用同一持久设备标识（A-09），避免两处生成口径不一致。
+    if (window.QFAuth && QFAuth.deviceId) return QFAuth.deviceId();
     try {
       var id = localStorage.getItem("qf_web_id");
       if (!id) {
@@ -240,7 +242,7 @@ function applyLang(lang) {
 // ===== 下载按钮直链：页面加载时向 GitHub API 解析各平台最新正式版安装包，点按直接下载 =====
 // 只取正式版（跳过 draft 与 prerelease 预发布）；解析成功后把按钮 href 换成资产直链
 // （browser_download_url）并去掉新窗口打开，让下载在当前页直接开始；
-// 拉取失败则保留 HTML 中的 Releases 过滤页链接作为兜底，按钮不会失效。
+// 拉取失败则保留 HTML 中的当前正式版直链作为兜底，按钮始终直达下载。
 (function () {
   var btns = document.querySelectorAll("[data-dl]");
   if (!btns.length) return;
@@ -266,7 +268,8 @@ function applyLang(lang) {
     }
     var map = {
       android: pick("android-v", [".apk"]),
-      windows: pick("windows-v", [".exe", ".zip"])
+      windows: pick("windows-v", [".exe", ".zip"]),
+      "windows-zip": pick("windows-v", [".zip"])
     };
     btns.forEach(function (b) {
       var url = map[b.getAttribute("data-dl")];
