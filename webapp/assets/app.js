@@ -370,13 +370,13 @@
   function showCompletion(remember) {
     var box = $('#completionBox'); if (!box) return;
     box.innerHTML = '<div class="card" style="margin-top:12px;"><h3>完善账号信息</h3><p class="muted">您的邮箱已通过 Google 验证' + (completion.email ? '（' + esc(completion.email) + '）' : '') + '。请设置账户 ID 与密码完成注册；账户 ID 须为 8 位以上、仅含字母与数字，且全网唯一，设置后不可修改。</p>' +
-      '<form class="stack" id="compForm"><label>账户 ID<input name="username" required></label><label>昵称<input name="nickname"></label><label>设置密码<input name="password" type="password" required></label><label>确认密码<input name="password2" type="password" required></label>' +
+      '<form class="stack" id="compForm"><label>账户 ID<input name="username" required></label><label>设置密码<input name="password" type="password" required></label><label>确认密码<input name="password2" type="password" required></label>' +
       '<div class="err" id="compErr"></div><button class="primary" type="submit">完成并登录</button></form></div>';
     $('#compForm').addEventListener('submit', async function (ev) {
       ev.preventDefault();
       var fd = new FormData(ev.target);
       if (String(fd.get('password')) !== String(fd.get('password2'))) { $('#compErr').textContent = '两次输入的密码不一致，请重新输入。'; return; }
-      var body = Object.assign({ completionToken: completion.token, username: String(fd.get('username')).trim(), nickname: String(fd.get('nickname') || '').trim(), password: String(fd.get('password')) }, authDeviceBody());
+      var body = Object.assign({ completionToken: completion.token, username: String(fd.get('username')).trim(), password: String(fd.get('password')) }, authDeviceBody());
       var r = await api('/auth/google/complete', { method: 'POST', auth: false, body: body });
       if (r.ok && r.data && r.data.accessToken) { completion.token = ''; finishLogin(r.data, remember); }
       else if (r.ok && r.data && (r.data.needsStepUp || r.data.stepUpRequired)) { stepUp.token = r.data.stepUpToken || ''; showStepUp(remember); }
