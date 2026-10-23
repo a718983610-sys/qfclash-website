@@ -12,6 +12,9 @@ const I18N = {
     fb_success: "提交成功，感谢您的反馈，我们将认真阅读并处理。",
     fb_fail: "提交失败，请稍后重试，或直接发送邮件至 a718983610@gmail.com。",
     fb_empty: "请先填写留言内容后再提交。",
+    forum_banner_t: "官方论坛 · 用户社区",
+    forum_banner_p: "欢迎来到 QFClash 官方论坛。这里是用户交流使用经验、反馈问题与提出建议的社区，官方公告亦在此发布。登录后即可发帖与回复，欢迎参与交流。",
+    forum_banner_btn: "进入论坛",
     hero_tagline: "简洁、强大、全中文的网络代理客户端",
     hero_sub: "QFClash 基于 mihomo 内核开发，支持 Android 与 Windows 双平台。导入订阅即可使用，节点选择灵活，功能完整不删减。",
     hero_dl_android: "下载 Android 版", hero_dl_windows: "下载 Windows 版",
@@ -69,6 +72,9 @@ const I18N = {
     fb_success: "Submitted successfully. Thank you for your feedback; we will read and handle it with care.",
     fb_fail: "Submission failed. Please try again later, or email us directly at a718983610@gmail.com.",
     fb_empty: "Please enter your message before submitting.",
+    forum_banner_t: "Official Forum · Community",
+    forum_banner_p: "Welcome to the QFClash official forum — the community for sharing experience, reporting issues, and making suggestions. Official announcements are also published here. Sign in to post and reply.",
+    forum_banner_btn: "Visit the Forum",
     hero_tagline: "A clean, powerful network proxy client for Android and Windows",
     hero_sub: "QFClash is built on the mihomo core and available for both Android and Windows. Import your subscription and connect — with flexible node selection and a complete, unabridged feature set.",
     hero_dl_android: "Download for Android", hero_dl_windows: "Download for Windows",
@@ -225,4 +231,42 @@ function applyLang(lang) {
       }, 0);
     });
   }
+})();
+
+// ===== 下载按钮直链：页面加载时向 GitHub API 解析各平台最新正式版安装包，点按直接下载 =====
+// 只取正式版（跳过 draft 与 prerelease 预发布）；解析成功后把按钮 href 换成资产直链
+// （browser_download_url）并去掉新窗口打开，让下载在当前页直接开始；
+// 拉取失败则保留 HTML 中的 Releases 过滤页链接作为兜底，按钮不会失效。
+(function () {
+  var btns = document.querySelectorAll("[data-dl]");
+  if (!btns.length) return;
+  fetch("https://api.github.com/repos/a718983610-sys/FlClash/releases?per_page=30", {
+    headers: { "Accept": "application/vnd.github+json" }
+  }).then(function (res) {
+    if (!res.ok) throw new Error("github api " + res.status);
+    return res.json();
+  }).then(function (list) {
+    function pick(prefix, exts) {
+      for (var i = 0; i < list.length; i++) {
+        var r = list[i];
+        if (r.draft || r.prerelease) continue;
+        if (!r.tag_name || r.tag_name.indexOf(prefix) !== 0) continue;
+        for (var e = 0; e < exts.length; e++) {
+          for (var a = 0; a < (r.assets || []).length; a++) {
+            var name = (r.assets[a].name || "").toLowerCase();
+            if (name.slice(-exts[e].length) === exts[e]) return r.assets[a].browser_download_url;
+          }
+        }
+      }
+      return null;
+    }
+    var map = {
+      android: pick("android-v", [".apk"]),
+      windows: pick("windows-v", [".exe", ".zip"])
+    };
+    btns.forEach(function (b) {
+      var url = map[b.getAttribute("data-dl")];
+      if (url) { b.href = url; b.removeAttribute("target"); }
+    });
+  }).catch(function () { /* 保留兜底链接 */ });
 })();
