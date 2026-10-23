@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QFClash 论坛</title>
+<meta name="description" content="QFClash 官方论坛 — 用户交流与互助社区。">
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="index.html"><img src="assets/icon.png" alt="QFClash">QFClash</a>
+    <nav>
+      <a href="index.html#about" data-i18n="nav_about">产品介绍</a>
+      <a href="index.html#download" data-i18n="nav_download">下载</a>
+      <a href="index.html#points" data-i18n="nav_points">积分规则</a>
+      <a href="forum.html" data-i18n="nav_forum">论坛</a>
+      <a href="agreement.html" data-i18n="nav_agreement">用户协议</a>
+    </nav>
+    <div class="nav-auth" id="navAuth"></div>
+    <button class="lang-btn" id="langToggle" type="button">EN</button>
+  </div>
+</header>
+
+<div class="wrap" style="padding-bottom:60px">
+  <div class="forum-head">
+    <h1 data-i18n="forum_title">QFClash 论坛</h1>
+    <div class="userbar" id="userbar"></div>
+  </div>
+  <p class="sec-sub" style="text-align:left;margin:0 0 18px" data-i18n="forum_sub">本论坛为 QFClash 用户交流与互助社区。发言请友善文明，并遵守法律法规与社区规范。</p>
+
+  <div class="alert" id="alertBox"></div>
+
+  <div id="viewMain">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+      <div class="boards" id="boards" style="margin-bottom:0"></div>
+      <button class="btn-blue" id="newPostBtn" style="margin-left:auto" data-i18n="new_post">发布帖子</button>
+    </div>
+    <div id="postArea"></div>
+    <div class="pager" id="pager">
+      <button id="prevPage" data-i18n="prev">上一页</button>
+      <button id="nextPage" data-i18n="next">下一页</button>
+    </div>
+  </div>
+
+  <div id="viewDetail" class="hidden">
+    <button class="small-btn" id="backBtn" data-i18n="back_list">← 返回帖子列表</button>
+    <div style="height:14px"></div>
+    <div class="detail-card" id="detailCard"></div>
+    <h3 style="margin:26px 0 6px" data-i18n="replies">回复</h3>
+    <div id="replyList"></div>
+    <div class="compose" style="margin-top:18px" id="replyBox">
+      <div class="alert" id="replyAlert"></div>
+      <textarea id="replyContent" rows="4" data-i18n-ph="reply_ph" placeholder="请在此填写回复内容"></textarea>
+      <button class="btn-blue" id="replySubmit" data-i18n="reply_submit">发表回复</button>
+    </div>
+    <p id="replyLoginHint" class="hidden" style="color:var(--gray);font-size:14.5px;margin-top:14px" data-i18n="login_to_reply">登录后即可参与回复。</p>
+  </div>
+
+  <div id="viewCompose" class="hidden">
+    <h3 style="margin:6px 0 14px;font-size:20px" data-i18n="compose_title">发布新帖</h3>
+    <div class="compose">
+      <div class="alert" id="composeAlert"></div>
+      <label data-i18n="f_board">选择板块</label>
+      <select id="postBoard"></select>
+      <label data-i18n="f_title">标题</label>
+      <input id="postTitle" type="text" maxlength="120" data-i18n-ph="title_ph" placeholder="请输入帖子标题">
+      <label data-i18n="f_content">正文</label>
+      <textarea id="postContent" rows="9" data-i18n-ph="content_ph" placeholder="请输入帖子内容"></textarea>
+      <div style="display:flex;gap:10px">
+        <button class="btn-blue" id="postSubmit" data-i18n="publish">发布</button>
+        <button class="small-btn" id="postCancel" data-i18n="cancel">取消</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 昵称弹窗 -->
+<div class="modal-mask" id="profileModal">
+  <div class="modal">
+    <h3 data-i18n="profile_title">设置昵称</h3>
+    <div class="alert" id="profileAlert"></div>
+    <input id="nickInput" type="text" maxlength="32" data-i18n-ph="nick_ph" placeholder="请输入昵称">
+    <div style="display:flex;gap:10px">
+      <button class="btn-blue" id="nickSave" data-i18n="save">保存</button>
+      <button class="small-btn" id="profileCancel" data-i18n="cancel">取消</button>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <span>© 2026 QFClash</span>
+      <span>
+        <a href="index.html" data-i18n="nav_home">首页</a> ·
+        <a href="agreement.html" data-i18n="nav_agreement">用户协议</a> ·
+        <a href="index.html#points" data-i18n="nav_points">积分规则</a>
+      </span>
+    </div>
+    <p class="lic" data-i18n="footer_lic">QFClash 基于开源项目 FlClash 与 mihomo 内核开发，源代码以 GNU 通用公共许可证第三版（GPL-3.0）发布。FlClash、mihomo 等开源组件的权利归各自作者所有，并适用其随附许可证。</p>
+  </div>
+</footer>
+
+<script src="assets/auth.js"></script>
+<script src="assets/forum.js"></script>
+</body>
+</html>

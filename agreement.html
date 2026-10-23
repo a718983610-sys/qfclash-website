@@ -23,6 +23,7 @@
       <a href="index.html#download" class="lang-zh">下载</a><a href="index.html#download" class="lang-en" style="display:none">Download</a>
       <a href="index.html#points" class="lang-zh">积分规则</a><a href="index.html#points" class="lang-en" style="display:none">Points Rules</a>
     </nav>
+    <div class="nav-auth" id="navAuth"></div>
     <button class="lang-btn" id="langToggle" type="button">EN</button>
   </div>
 </header>
@@ -289,6 +290,8 @@
       a.style.display = lang === "en" ? "" : "none";
     });
     try { localStorage.setItem("qf_lang", lang); } catch (e) {}
+    window.dispatchEvent(new CustomEvent("qf-lang-change", { detail: { lang: lang } }));
+    if (window.QFAuth) QFAuth.setLang(lang);
   }
   var lang = "zh";
   try { lang = localStorage.getItem("qf_lang") || "zh"; } catch (e) {}
@@ -298,5 +301,6 @@
   });
 })();
 </script>
+<script src="assets/auth.js"></script>
 </body>
 </html>
