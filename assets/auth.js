@@ -1,6 +1,7 @@
 // QFClash 官网账号模块：与 App 同一账号体系（同服务器 /auth/*）。
-// 提供：导航登录状态、登录/注册弹窗（注册一步式：同屏填邮箱、验证码与密码，
-// 提交时前端依次验码换票据、设密码完成注册）、双令牌本地保存、
+// 提供：导航登录状态、登录/注册弹窗（注册一步式五栏：ID、邮箱、密码、
+// 重复密码、验证码同屏，提交时前端依次验码换票据、带 username 完成注册；
+// 登录支持邮箱或 ID＋密码）、双令牌本地保存、
 // 401 自动续期、谷歌登录占位。论坛页通过 window.QFAuth 复用同一登录态。
 (function () {
   var API = "https://qfclash-account.a718983610.workers.dev";
@@ -10,6 +11,7 @@
       nav_login: "登录 / 注册", logout: "退出登录",
       tab_login: "登录", tab_register: "注册",
       email_ph: "邮箱地址", password_ph: "密码", code_ph: "邮箱验证码",
+      id_ph: "账户 ID（至少 8 位，字母与数字）", login_id_ph: "邮箱或 ID",
       pwd_set_ph: "请设置登录密码（8 至 72 位）", pwd_confirm_ph: "请再次输入密码",
       google_btn: "使用 Google 账号登录", or: "或",
       google_soon: "谷歌登录即将上线，敬请期待。",
@@ -18,8 +20,11 @@
       dual_hint: "为保障账号安全，本次登录需完成邮箱验证码校验。",
       get_code: "获取验证码",
       reg_note: "在本网站注册的账号与 QFClash 应用通用，注册完成后可直接使用同一账号在应用内登录。",
-      reg_form_note: "请填写以下信息完成注册。获取验证码后将其填入下方，并设置登录密码（需填写两次，两次输入须一致）。",
+      reg_form_note: "请填写以下信息完成注册：设置账户 ID 与登录密码（密码需填写两次，两次输入须一致），最后获取并填写邮箱验证码。",
       v_email: "请输入有效的邮箱地址。",
+      v_id: "账户 ID 至少 8 位，只能包含英文字母与数字，且必须包含字母。",
+      id_taken: "该账户ID已被注册。",
+      v_identifier: "请输入邮箱或账户 ID。",
       v_pwd_empty: "请输入密码。",
       v_pwd_len: "密码长度需为 8 至 72 位，请重新输入。",
       v_pwd_match: "两次输入的密码不一致，请重新核对。",
@@ -28,13 +33,14 @@
       reg_ok: "注册成功，已为您自动登录。",
       login_ok: "登录成功。",
       generic_fail: "操作失败，请稍后重试。",
-      login_fail: "登录失败，请核对邮箱与密码后重试。",
+      login_fail: "登录失败，请核对邮箱或 ID 与密码后重试。",
       working: "正在处理，请稍候……"
     },
     en: {
       nav_login: "Sign In / Register", logout: "Sign Out",
       tab_login: "Sign In", tab_register: "Register",
       email_ph: "Email address", password_ph: "Password", code_ph: "Email verification code",
+      id_ph: "Account ID (min. 8 characters, letters and numbers)", login_id_ph: "Email or ID",
       pwd_set_ph: "Set a password (8 to 72 characters)", pwd_confirm_ph: "Re-enter the password",
       google_btn: "Continue with Google", or: "or",
       google_soon: "Google sign-in is coming soon. Stay tuned.",
@@ -43,8 +49,11 @@
       dual_hint: "To keep your account secure, this sign-in requires an email verification code.",
       get_code: "Get Code",
       reg_note: "Accounts registered on this website work across QFClash: once registered, you can sign in to the app directly with the same account.",
-      reg_form_note: "Complete the fields below to register. Request a verification code, enter it below, and set a sign-in password (entered twice; both entries must match).",
+      reg_form_note: "Complete the fields below to register: choose an account ID, set a sign-in password (entered twice; both entries must match), then request and enter the email verification code.",
       v_email: "Please enter a valid email address.",
+      v_id: "The account ID must be at least 8 characters, contain only letters and numbers, and include at least one letter.",
+      id_taken: "This account ID has already been registered.",
+      v_identifier: "Please enter your email address or account ID.",
       v_pwd_empty: "Please enter your password.",
       v_pwd_len: "The password must be 8 to 72 characters. Please try again.",
       v_pwd_match: "The two passwords do not match. Please check and try again.",
@@ -53,7 +62,7 @@
       reg_ok: "Registration completed. You are now signed in.",
       login_ok: "Signed in successfully.",
       generic_fail: "The operation failed. Please try again later.",
-      login_fail: "Sign-in failed. Please check your email and password and try again.",
+      login_fail: "Sign-in failed. Please check your email or ID and password and try again.",
       working: "Processing, please wait…"
     }
   };
@@ -153,7 +162,7 @@
       '<div id="paneLogin">' +
       '<button type="button" class="google-btn" id="googleBtn"><span class="g">G</span><span id="googleBtnTxt"></span></button>' +
       '<div class="divider" id="orDiv"></div>' +
-      '<input id="liEmail" type="email" autocomplete="username">' +
+      '<input id="liEmail" type="text" autocomplete="username">' +
       '<p class="field-err" id="liEmailErr"></p>' +
       '<input id="liPassword" type="password" autocomplete="current-password">' +
       '<p class="field-err" id="liPwdErr"></p>' +
@@ -164,18 +173,20 @@
       '<div style="display:flex;gap:10px"><button type="button" class="btn-blue" id="liSubmit"></button>' +
       '<button type="button" class="small-btn" data-close></button></div>' +
       "</div>" +
-      // 注册（一步式：邮箱＋验证码＋密码同屏，一次提交完成）
+      // 注册（一步式五栏：ID、邮箱、密码、重复密码、验证码同屏，一次提交完成）
       '<div id="paneRegister" class="hidden">' +
       '<p class="step-note" id="regNote"></p>' +
       '<p class="step-note" id="regFormNote"></p>' +
+      '<input id="rgId" type="text" autocomplete="username">' +
+      '<p class="field-err" id="rgIdErr"></p>' +
       '<input id="rgEmail" type="email" autocomplete="email">' +
       '<p class="field-err" id="rgEmailErr"></p>' +
-      '<div class="row"><input id="rgCode" type="text"><button class="small-btn" id="rgSendCode" type="button"></button></div>' +
-      '<p class="field-err" id="rgCodeErr"></p>' +
       '<input id="rgPwd" type="password" autocomplete="new-password">' +
       '<p class="field-err" id="rgPwdErr"></p>' +
       '<input id="rgPwd2" type="password" autocomplete="new-password">' +
       '<p class="field-err" id="rgPwd2Err"></p>' +
+      '<div class="row"><input id="rgCode" type="text"><button class="small-btn" id="rgSendCode" type="button"></button></div>' +
+      '<p class="field-err" id="rgCodeErr"></p>' +
       '<div style="display:flex;gap:10px"><button type="button" class="btn-blue" id="rgComplete"></button>' +
       '<button type="button" class="small-btn" data-close></button></div>' +
       "</div>" +
@@ -219,7 +230,8 @@
     set("regNote", t("reg_note")); set("regFormNote", t("reg_form_note"));
     set("rgSendCode", t("send_code"));
     set("rgComplete", t("complete_reg"));
-    ph("liEmail", t("email_ph")); ph("liPassword", t("password_ph")); ph("liCode", t("code_ph"));
+    ph("liEmail", t("login_id_ph")); ph("liPassword", t("password_ph")); ph("liCode", t("code_ph"));
+    ph("rgId", t("id_ph"));
     ph("rgEmail", t("email_ph")); ph("rgCode", t("code_ph"));
     ph("rgPwd", t("pwd_set_ph")); ph("rgPwd2", t("pwd_confirm_ph"));
     document.querySelectorAll("#authModal [data-close]").forEach(function (b) {
@@ -251,20 +263,25 @@
     if (e) e.classList.remove("show");
   }
   function validEmail(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v || ""); }
+  // 账户 ID：至少 8 位、只许英文字母与数字、必须包含字母。
+  function validUsername(v) { return /^(?=.*[A-Za-z])[A-Za-z0-9]{8,}$/.test(v || ""); }
 
-  // 注册一步式提交：前端依次验码换 ticket → 用 ticket 设密码完成注册，
+  // 注册一步式提交：前端依次验码换 ticket → 用 ticket 带 username 设密码完成注册，
   // 对用户呈现为一次提交；任一步出错都在对应字段下标错，已填内容不清空。
   function doRegister() {
+    var username = document.getElementById("rgId").value.trim();
     var email = document.getElementById("rgEmail").value.trim();
     var code = document.getElementById("rgCode").value.trim();
     var p1 = document.getElementById("rgPwd").value;
     var p2 = document.getElementById("rgPwd2").value;
+    clearErr("rgId", "rgIdErr");
     clearErr("rgEmail", "rgEmailErr"); clearErr("rgCode", "rgCodeErr");
     clearErr("rgPwd", "rgPwdErr"); clearErr("rgPwd2", "rgPwd2Err");
+    if (!validUsername(username)) { fieldErr("rgId", "rgIdErr", t("v_id")); return; }
     if (!validEmail(email)) { fieldErr("rgEmail", "rgEmailErr", t("v_email")); return; }
-    if (!code) { fieldErr("rgCode", "rgCodeErr", t("v_code")); return; }
     if (!p1 || p1.length < 8 || p1.length > 72) { fieldErr("rgPwd", "rgPwdErr", t("v_pwd_len")); return; }
     if (p1 !== p2) { fieldErr("rgPwd2", "rgPwd2Err", t("v_pwd_match")); return; }
+    if (!code) { fieldErr("rgCode", "rgCodeErr", t("v_code")); return; }
     var btn = document.getElementById("rgComplete");
     btn.disabled = true;
     var done = function () { btn.disabled = false; };
@@ -278,16 +295,19 @@
       }
       regState.email = email;
       post("/auth/register/complete", {
-        ticket: r.data.ticket, password: p1,
+        ticket: r.data.ticket, password: p1, username: username,
         deviceHash: deviceId(), deviceName: "Website", platform: "website"
       }).then(function (r2) {
         done();
         if (r2.ok && r2.data.accessToken) {
           saveSession(r2.data);
           finishAuth(t("reg_ok"));
+        } else if (r2.data && (r2.data.code === "USERNAME_TAKEN" || r2.data.error === "USERNAME_TAKEN")) {
+          fieldErr("rgId", "rgIdErr", t("id_taken"));
         } else {
           var msg2 = serverMsg(r2.data);
-          if (/密码|password/i.test(msg2)) fieldErr("rgPwd", "rgPwdErr", msg2);
+          if (/已被注册|already (been )?registered/i.test(msg2)) fieldErr("rgId", "rgIdErr", t("id_taken"));
+          else if (/密码|password/i.test(msg2)) fieldErr("rgPwd", "rgPwdErr", msg2);
           else if (/验证|过期|ticket|code/i.test(msg2)) fieldErr("rgCode", "rgCodeErr", msg2);
           else showAlert(msg2, false);
         }
@@ -296,13 +316,15 @@
   }
 
   function doLogin() {
-    var email = document.getElementById("liEmail").value.trim();
+    var identifier = document.getElementById("liEmail").value.trim();
     var password = document.getElementById("liPassword").value;
     var code = document.getElementById("liCode").value.trim();
     clearErr("liEmail", "liEmailErr"); clearErr("liPassword", "liPwdErr");
-    if (!validEmail(email)) { fieldErr("liEmail", "liEmailErr", t("v_email")); return; }
+    if (!identifier) { fieldErr("liEmail", "liEmailErr", t("v_identifier")); return; }
+    if (identifier.indexOf("@") >= 0 && !validEmail(identifier)) { fieldErr("liEmail", "liEmailErr", t("v_email")); return; }
     if (!password) { fieldErr("liPassword", "liPwdErr", t("v_pwd_empty")); return; }
-    var body = { email: email, password: password, deviceHash: deviceId() };
+    var body = { identifier: identifier, password: password, deviceHash: deviceId() };
+    if (validEmail(identifier)) body.email = identifier;
     if (code) body.emailCode = code;
     post("/auth/login", body).then(function (r) {
       if (r.ok && r.data.dualVerifyRequired) {
@@ -310,7 +332,7 @@
         showAlert(r.data.message || t("dual_hint"), false);
       } else if (r.ok && r.data.accessToken) {
         saveSession(r.data);
-        if (email) lsSet("qf_email", email);
+        if (validEmail(identifier)) lsSet("qf_email", identifier);
         finishAuth(t("login_ok"));
       } else {
         showAlert(serverMsg(r.data, "login_fail"), false);
