@@ -1282,7 +1282,7 @@
       '<section class="csec"><div class="csec-head"><h2>官方社区</h2><button type="button" class="csec-more" id="howToBtn" aria-expanded="false">使用方法 ›</button></div>' +
       '<div class="crail">' + railHtml + '</div><div id="howToBox"></div></section>' +
       '<section class="csec"><div class="csec-head"><h2>热门营地</h2><a class="csec-more" href="#/forum/camps">全部 ›</a></div>' +
-      '<div class="cfold"><button type="button" class="cfold-head" id="campFoldHead" aria-expanded="false"><b>全部营地</b><span class="cfold-n">共 ' + personalCamps.length + ' 个 · 创建需机器人审核</span><span class="cfold-chev" id="campFoldChev">展开 ⌄</span></button>' +
+      '<div class="cfold"><button type="button" class="cfold-head" id="campFoldHead" aria-expanded="false"><b>全部营地</b><span class="cfold-n">共 ' + personalCamps.length + ' 个 · 创建需自动审核</span><span class="cfold-chev" id="campFoldChev">展开 ⌄</span></button>' +
       '<div id="campFoldBody" hidden>' + (hotHtml || '<p class="muted small" style="padding:12px 14px;">暂无个人营地。</p>') +
       '<div class="hot-line" style="justify-content:center;"><a href="#/forum/camps">查看全部营地 ›</a></div></div></div>' +
       '<div id="campFormBox"></div>' +
@@ -1310,7 +1310,7 @@
       htb.setAttribute('aria-expanded', String(!open));
       box.innerHTML = open ? '' : '<div class="howto"><strong>使用方法</strong><ul>' +
         '<li>游客可以直接浏览帖子与精选内容；登录后可以发帖、回复、点赞，也可以创建或加入营地。</li>' +
-        '<li>「营地」是围绕主题的小社区：官方社区由平台维护；个人营地由用户创建，创建时先经机器人审核，通过后上线。</li>' +
+        '<li>「营地」是围绕主题的小社区：官方社区由平台维护；个人营地由用户创建，创建时先经自动审核，通过后上线。</li>' +
         '<li>营地创建者可以修改自己营地的名称、简介与头像，修改内容同样会经过审核后才生效。</li>' +
         '<li>热门营地按成员数、帖子数与活跃度综合排序；点「全部」可查看完整榜单。</li>' +
         '<li>发帖、回复与营地内容都会经过审核，违规内容将被驳回并显示原因大类。</li></ul></div>';
@@ -1370,7 +1370,7 @@
     if (composeWanted) { composeWanted = false; setTimeout(openCompose, 60); }
   }
   // ---------- 营地创建 / 编辑 / 删除（与 App 同接口同规则） ----------
-  // 创建 POST /forum/camps {name,description,avatar?}：提交即机器人审核（过审上线 / 疑似进
+  // 创建 POST /forum/camps {name,description,avatar?}：提交即自动审核（过审上线 / 疑似进
   // 人工待审 / 违规驳回回大类）；名称全网唯一、每位用户上限由服务端参数控制
   // （站长不受上限约束，服务端判定）。我的营地 GET /forum/me/camps（含未上线态，
   // 创建者可见驳回大类）；编辑 POST /forum/camps/:id/edit（仅创建者，{name?,
@@ -1426,7 +1426,7 @@
       '<label>营地头像（可选，支持 PNG、JPG、WebP、GIF，大图自动压缩）<input type="file" id="campAvatarFile" accept="image/png,image/jpeg,image/webp,image/gif"></label>' +
       (editing && camp.avatarUrl ? '<label class="switch-row"><input type="checkbox" id="campAvatarRemove"> 移除当前头像</label>' : '') +
       '<div class="camp-form-avprev" id="campAvatarPrev">' + (editing && camp.avatarUrl ? '<span class="muted small">当前头像：</span>' + campAvatarSlotHtml(camp, 48) : '') + '</div>' +
-      '<p class="muted small" style="margin:0;">提交后先经机器人审核：通过即生效；疑似违规会进入人工审核；明显违规将被驳回并显示原因大类。头像修改与改名一起审核。每位用户最多创建 3 个营地（站长不受此限制）。</p>' +
+      '<p class="muted small" style="margin:0;">提交后先经自动审核：通过即生效；疑似违规会进入人工审核；明显违规将被驳回并显示原因大类。头像修改与改名一起审核。每位用户最多创建 3 个营地（站长不受此限制）。</p>' +
       '<div class="err" id="campFormErr"></div><div class="ok" id="campFormOk"></div>' +
       '<span class="row"><button class="primary" type="submit">' + (editing ? '提交' : '创建营地') + '</button><button class="ghost" type="button" id="campFormCancel">取消</button></span></form>';
     fillCampAvatars(box);
@@ -2770,7 +2770,7 @@
       if (r1) done(r1.message || '密码已重置。');
     } else if (act === 'nickname') {
       var f2 = await ownerConfirm({
-        title: '修改昵称', body: '新昵称将即时生效并公开显示，须通过内容审核口径。',
+        title: '修改昵称', body: '新昵称将即时生效并公开显示，须符合内容审核要求。',
         fieldsHtml: '<label for="fNick">新昵称</label><input id="fNick" type="text" maxlength="24">',
         collect: function (ov) { var v = ov.querySelector('#fNick').value.trim(); if (!v) { ownFieldErr(ov, '请填写新昵称。'); return null; } return { nickname: v }; },
       });
@@ -2992,7 +2992,7 @@
         } else if (opts.codeField) {
           var cf = giftCodeForm();
           o.fieldsHtml = cf.fieldsHtml; o.collect = cf.collect;
-          o.body = '请填写要发放给该用户的兑换码：通过后立即绑定该码并发放，不再依赖预导入码池。';
+          o.body = '请填写要发放给该用户的兑换码：通过后立即绑定该码并发放，不再依赖预先导入的兑换码。';
         }
         var f = await ownerConfirm(o);
         if (!f) return;
