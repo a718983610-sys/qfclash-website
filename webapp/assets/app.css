@@ -38,7 +38,8 @@ svg.ico { flex: 0 0 auto; vertical-align: -3px; }
 .hamburger:hover { background: #f0f3f9; }
 .hamburger span { display: block; width: 20px; height: 2px; background: var(--ink); border-radius: 1px; }
 .hamburger[aria-expanded="true"] { background: var(--brand-soft); }
-.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; white-space: nowrap; letter-spacing: .2px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 19px; white-space: nowrap; color: var(--ink); }
+.brand img { width: 34px; height: 34px; border-radius: 8px; display: block; flex: 0 0 auto; }
 .brand-mark { width: 32px; height: 32px; border-radius: 9px; background: var(--brand-grad); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; letter-spacing: .5px; flex: 0 0 auto; box-shadow: 0 3px 8px rgba(37, 99, 235, .38), inset 0 1px 0 rgba(255, 255, 255, .35); }
 .topbar-note { color: var(--faint); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .site-home-btn { margin-left: auto; flex: 0 0 auto; border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 999px; padding: 6px 14px; font-size: 13.5px; text-decoration: none; white-space: nowrap; transition: border-color .15s, color .15s, box-shadow .15s; }
@@ -334,6 +335,8 @@ a.pane-item:hover { background: #f4f7fd; text-decoration: none; }
   .view { padding-left: 12px; padding-right: 12px; }
   .card { padding: 17px; }
   .topbar-note { display: none; }
+  .brand { font-size: 17px; }
+  .brand img { width: 30px; height: 30px; }
   .hero-in { padding: 20px 18px; }
   .hero .hero-title { font-size: 23px; }
   .hero::after { font-size: 96px; }
@@ -374,6 +377,7 @@ a.pane-item:hover { background: #f4f7fd; text-decoration: none; }
   .fab { bottom: 92px; }
 }
 @media (min-width: 960px) { .fab { bottom: 26px; } }
+@media (min-width: 1024px) { .brand { font-size: 20px; } .brand img { width: 36px; height: 36px; } }
 
 .fab { position: fixed; right: 22px; z-index: 44; display: inline-flex; align-items: center; gap: 7px; border: none; border-radius: 999px; padding: 13px 22px; background: var(--brand-grad); color: #fff; font-size: 15px; font-weight: 700; box-shadow: 0 12px 26px rgba(37, 99, 235, .42), inset 0 1px 0 rgba(255, 255, 255, .3); transition: transform .12s, box-shadow .15s; animation: fadeUp .3s ease both; }
 .fab:hover { box-shadow: 0 16px 32px rgba(37, 99, 235, .5), inset 0 1px 0 rgba(255, 255, 255, .3); }
