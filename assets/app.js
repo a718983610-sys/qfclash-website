@@ -159,6 +159,15 @@ function applyLang(lang) {
   var form = document.getElementById("feedbackForm");
   if (!form) return;
   var API = "https://qfclash-account.a718983610.workers.dev";
+  // 请求超时（W-02）：15 秒无响应即按失败处理，不再无限停在「发送中…」。
+  function fetchT(url, opts) {
+    var ctrl = ("AbortController" in window) ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 15000) : null;
+    var o = {};
+    Object.keys(opts || {}).forEach(function (k) { o[k] = opts[k]; });
+    if (ctrl) o.signal = ctrl.signal;
+    return fetch(url, o).then(function (r) { if (timer) clearTimeout(timer); return r; }, function (e) { if (timer) clearTimeout(timer); throw e; });
+  }
   function lang() { return document.documentElement.lang === "en" ? "en" : "zh"; }
   function t(key) { return (I18N[lang()] || I18N.zh)[key] || key; }
   function webDeviceId() {
@@ -183,7 +192,7 @@ function applyLang(lang) {
     if (!content) { status.textContent = t("fb_empty"); status.classList.add("err"); return; }
     btn.disabled = true;
     status.textContent = t("fb_sending");
-    fetch(API + "/feedback", {
+    fetchT(API + "/feedback", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -248,7 +257,16 @@ function applyLang(lang) {
 (function () {
   var btns = document.querySelectorAll("[data-dl]");
   if (!btns.length) return;
-  fetch("https://api.github.com/repos/a718983610-sys/FlClash/releases?per_page=30", {
+  // 解析超时（W-02）：15 秒拉不到就放弃，保留 HTML 中的正式版直链兜底。
+  function fetchT(url, opts) {
+    var ctrl = ("AbortController" in window) ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 15000) : null;
+    var o = {};
+    Object.keys(opts || {}).forEach(function (k) { o[k] = opts[k]; });
+    if (ctrl) o.signal = ctrl.signal;
+    return fetch(url, o).then(function (r) { if (timer) clearTimeout(timer); return r; }, function (e) { if (timer) clearTimeout(timer); throw e; });
+  }
+  fetchT("https://api.github.com/repos/a718983610-sys/FlClash/releases?per_page=30", {
     headers: { "Accept": "application/vnd.github+json" }
   }).then(function (res) {
     if (!res.ok) throw new Error("github api " + res.status);

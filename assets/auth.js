@@ -36,6 +36,7 @@
       reg_ok: "注册成功，已为您自动登录。",
       login_ok: "登录成功。",
       generic_fail: "操作失败，请稍后重试。",
+      net_fail: "网络连接失败，请检查网络后重试。",
       login_fail: "登录失败，请核对邮箱或 ID 与密码后重试。",
       working: "正在处理，请稍候……",
       remember_device: "记住此设备",
@@ -91,6 +92,7 @@
       reg_ok: "Registration completed. You are now signed in.",
       login_ok: "Signed in successfully.",
       generic_fail: "The operation failed. Please try again later.",
+      net_fail: "Network connection failed. Please check your connection and try again.",
       login_fail: "Sign-in failed. Please check your email or ID and password and try again.",
       working: "Processing, please wait…",
       remember_device: "Remember this device",
@@ -248,15 +250,31 @@
   }
 
   // ---------- API ----------
+  // 请求超时与失败归一（W-02/W-03）：统一 15 秒超时；网络失败/超时不再以
+  // rejected Promise 穿透（无人接的处理器会静默），一律归一为「已 resolve 的
+  // 失败回包」{ status: 0, ok: false, data: { code: "NETWORK_ERROR", message } }，
+  // 调用方既有失败分支即可呈现。status 为 0 时调用方不得据此清会话/判失效。
+  var REQ_TIMEOUT_MS = 15000;
+  function fetchT(url, opts) {
+    var ctrl = ("AbortController" in window) ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, REQ_TIMEOUT_MS) : null;
+    var o = {};
+    Object.keys(opts || {}).forEach(function (k) { o[k] = opts[k]; });
+    if (ctrl) o.signal = ctrl.signal;
+    return fetch(url, o).then(function (r) { if (timer) clearTimeout(timer); return r; }, function (e) { if (timer) clearTimeout(timer); throw e; });
+  }
+  function netFailResult() {
+    return { status: 0, ok: false, data: { code: "NETWORK_ERROR", message: t("net_fail") } };
+  }
   function post(path, body, auth) {
     var headers = { "content-type": "application/json" };
     if (auth && token()) headers["authorization"] = "Bearer " + token();
-    return fetch(API + path, { method: "POST", headers: headers, body: JSON.stringify(body || {}) })
+    return fetchT(API + path, { method: "POST", headers: headers, body: JSON.stringify(body || {}) })
       .then(function (res) {
         return res.json().catch(function () { return {}; }).then(function (data) {
           return { status: res.status, ok: res.ok && data.ok !== false, data: data };
         });
-      });
+      }).catch(netFailResult);
   }
   function refresh() {
     var rt = sessGet("qf_refresh_token");
@@ -268,6 +286,8 @@
         if (r.data.refreshToken) sessSet("qf_refresh_token", r.data.refreshToken, remember);
         return true;
       }
+      // 网络失败（status 0）不是令牌失效：不清会话，等下一次请求再续期。
+      if (r.status === 0) return false;
       clearSession(); renderNav(); fireChange();
       return false;
     }).catch(function () { return false; });
@@ -276,7 +296,7 @@
     opts = opts || {};
     var headers = { "content-type": "application/json" };
     if (opts.auth && token()) headers["authorization"] = "Bearer " + token();
-    return fetch(API + path, {
+    return fetchT(API + path, {
       method: opts.method || "GET", headers: headers,
       body: opts.body ? JSON.stringify(opts.body) : undefined
     }).then(function (res) {
@@ -289,7 +309,7 @@
         }
         return { status: res.status, ok: res.ok && data.ok !== false, data: data };
       });
-    });
+    }).catch(netFailResult);
   }
   function serverMsg(data, fallbackKey) {
     if (data && typeof data.message === "string" && data.message) return data.message;
@@ -752,7 +772,12 @@
     var body = { identifier: identifier, password: password, deviceHash: deviceId(), deviceName: "Website", platform: "website" };
     if (validEmail(identifier)) body.email = identifier;
     if (code) body.emailCode = code;
+    // 防重复提交（W-05）：提交期间禁用登录钮（与注册/重置等钮的既有口径一致）。
+    var btn = document.getElementById("liSubmit");
+    if (btn && btn.disabled) return;
+    if (btn) btn.disabled = true;
     post("/auth/login", body).then(function (r) {
+      if (btn) btn.disabled = false;
       if (r.ok && (r.data.needsStepUp || r.data.stepUpRequired)) {
         beginStepUp(r.data);
       } else if (r.ok && r.data.dualVerifyRequired) {
@@ -765,7 +790,7 @@
       } else {
         showFailAlert(r.data, "login_fail");
       }
-    }).catch(function () { showAlert(t("generic_fail"), false); });
+    }).catch(function () { if (btn) btn.disabled = false; showAlert(t("generic_fail"), false); });
   }
   function finishAuth(msg) {
     renderNav();

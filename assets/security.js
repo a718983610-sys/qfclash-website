@@ -368,7 +368,7 @@
           api("/security/devices/" + encodeURIComponent(b.getAttribute("data-dev-logout")) + "/logout", { method: "POST", auth: true, body: {} }).then(function (r2) {
             showAlert("devAlert", serverMsg(r2.data), r2.ok);
             if (r2.ok) loadDevices();
-          });
+          }).catch(function () { showAlert("devAlert", t("generic_fail"), false); });
         });
       });
     });
@@ -396,7 +396,7 @@
           api("/passkeys/" + encodeURIComponent(b.getAttribute("data-pk-del")), { method: "DELETE", auth: true, body: body }).then(function (r2) {
             showAlert("pkAlert", serverMsg(r2.data), r2.ok);
             if (r2.ok) { reauthTokens.pk = ""; loadPasskeys(); }
-          });
+          }).catch(function () { showAlert("pkAlert", t("generic_fail"), false); });
         });
       });
     });
@@ -525,7 +525,7 @@
     document.getElementById("pwdSendCode").addEventListener("click", function () {
       api("/security/password/code", { method: "POST", auth: true, body: {} }).then(function (r) {
         showAlert("pwdAlert", r.ok ? t("code_sent") : serverMsg(r.data), r.ok);
-      });
+      }).catch(function () { showAlert("pwdAlert", t("generic_fail"), false); });
     });
     document.getElementById("pwdPasskey").addEventListener("click", function () { doReauth("change_password", "pwd", "pwdReauthState"); });
     document.getElementById("pkPasskey").addEventListener("click", function () { doReauth("passkey_manage", "pk", "pkReauthState"); });
@@ -543,20 +543,20 @@
       api("/security/password/change", { method: "POST", auth: true, body: body }).then(function (r) {
         showAlert("pwdAlert", serverMsg(r.data), r.ok);
         if (r.ok) reauthTokens.pwd = "";
-      });
+      }).catch(function () { showAlert("pwdAlert", t("generic_fail"), false); });
     });
 
     document.getElementById("oldCodeBtn").addEventListener("click", function () {
       api("/security/email/request-old-code", { method: "POST", auth: true, body: {} }).then(function (r) {
         showAlert("emailAlert", r.ok ? t("code_sent") : serverMsg(r.data), r.ok);
-      });
+      }).catch(function () { showAlert("emailAlert", t("generic_fail"), false); });
     });
     document.getElementById("newCodeBtn").addEventListener("click", function () {
       var ne = val("newEmail");
       if (!ne) { showAlert("emailAlert", t("fill_all"), false); return; }
       api("/security/email/request-new-code", { method: "POST", auth: true, body: { newEmail: ne } }).then(function (r) {
         showAlert("emailAlert", r.ok ? t("code_sent") : serverMsg(r.data), r.ok);
-      });
+      }).catch(function () { showAlert("emailAlert", t("generic_fail"), false); });
     });
     document.getElementById("emailSubmit").addEventListener("click", function () {
       var ne = val("newEmail"), oc = val("oldCode"), nc = val("newCode");
@@ -564,14 +564,14 @@
       api("/security/email/confirm", { method: "POST", auth: true, body: { newEmail: ne, oldCode: oc, newCode: nc } }).then(function (r) {
         showAlert("emailAlert", serverMsg(r.data), r.ok);
         if (r.ok) loadMe();
-      });
+      }).catch(function () { showAlert("emailAlert", t("generic_fail"), false); });
     });
 
     document.getElementById("loginProtection").addEventListener("change", function (ev) {
       api("/security/settings", { method: "PUT", auth: true, body: { loginProtection: !!ev.target.checked } }).then(function (r) {
         showAlert("secAlert", serverMsg(r.data), r.ok);
         if (!r.ok) ev.target.checked = !ev.target.checked;
-      });
+      }).catch(function () { ev.target.checked = !ev.target.checked; showAlert("secAlert", t("generic_fail"), false); });
     });
 
     document.getElementById("pkCreate").addEventListener("click", function () {
@@ -601,13 +601,13 @@
       api("/security/delete-account", { method: "POST", auth: true, body: body }).then(function (r) {
         showAlert("delAlert", serverMsg(r.data), r.ok);
         if (r.ok) { reauthTokens.del = ""; loadMe(); }
-      });
+      }).catch(function () { showAlert("delAlert", t("generic_fail"), false); });
     });
     document.getElementById("cancelDeleteBtn").addEventListener("click", function () {
       api("/security/delete-account/cancel", { method: "POST", auth: true, body: {} }).then(function (r) {
         showAlert("secAlert", serverMsg(r.data), r.ok);
         if (r.ok) init();
-      });
+      }).catch(function () { showAlert("secAlert", t("generic_fail"), false); });
     });
 
     document.getElementById("apQuota").addEventListener("click", function () {
@@ -617,7 +617,7 @@
         if (r.ok) showAlert("appealAlert", t("quota_left", { n: r.data.remaining }), true);
         else if (r.data && r.data.code === "ACCOUNT_BANNED") showAlert("appealAlert", r.data.permanent ? t("ban_perm") : t("ban_timed", { x: fmtTime(r.data.bannedUntil) }), false);
         else showAlert("appealAlert", serverMsg(r.data), false);
-      });
+      }).catch(function () { showAlert("appealAlert", t("generic_fail"), false); });
     });
     document.getElementById("usernameSubmit").addEventListener("click", function () {
       var u = val("newUsername");
@@ -632,7 +632,7 @@
         } else {
           showAlert("usernameAlert", serverMsg(r.data), false);
         }
-      });
+      }).catch(function () { showAlert("usernameAlert", t("generic_fail"), false); });
     });
 
     var rcLoadFriendsBtn = document.getElementById("rcLoadFriends");
@@ -720,7 +720,7 @@
       if (!id || !pw || !content) { showAlert("appealAlert", t("fill_all"), false); return; }
       QFAuth.post("/appeals", { identifier: id, password: pw, content: content }).then(function (r) {
         showAlert("appealAlert", r.ok ? t("appeal_ok") : serverMsg(r.data), r.ok);
-      });
+      }).catch(function () { showAlert("appealAlert", t("generic_fail"), false); });
     });
   }
 

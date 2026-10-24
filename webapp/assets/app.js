@@ -131,6 +131,16 @@
   function meBasic() { return { nickname: storeGet('qf_nickname') || '', email: storeGet('qf_email') || '', username: storeGet('qf_username') || '' }; }
 
   // ---------- API ----------
+  // 请求超时（W-02）：全站统一 15 秒。接口挂起（TCP 半开、Worker 冷启动卡死）
+  // 时不再无限「正在加载…」，AbortController 到点中断后按网络失败归一呈现，
+  // 页面既有错误文案与重试入口随之生效。
+  var API_TIMEOUT_MS = 15000;
+  function fetchTimeout(url, opts, ms) {
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, ms || API_TIMEOUT_MS);
+    var o = Object.assign({}, opts || {}, { signal: ctrl.signal });
+    return fetch(url, o).then(function (r) { clearTimeout(timer); return r; }, function (e) { clearTimeout(timer); throw e; });
+  }
   async function api(path, opts) {
     opts = opts || {};
     var headers = {};
@@ -139,9 +149,9 @@
     if (opts.auth !== false && storeGet('qf_access_token')) headers['Authorization'] = 'Bearer ' + storeGet('qf_access_token');
     var res;
     try {
-      res = await fetch(API + path, { method: opts.method || 'GET', headers: headers, body: opts.bodyRaw !== undefined ? opts.bodyRaw : (opts.body ? JSON.stringify(opts.body) : undefined) });
+      res = await fetchTimeout(API + path, { method: opts.method || 'GET', headers: headers, body: opts.bodyRaw !== undefined ? opts.bodyRaw : (opts.body ? JSON.stringify(opts.body) : undefined) });
     } catch (e) {
-      return { ok: false, network: true, message: '网络连接失败，请检查网络后重试。' };
+      return { ok: false, network: true, message: (e && e.name === 'AbortError') ? '请求超时，请检查网络后重试。' : '网络连接失败，请检查网络后重试。' };
     }
     if (opts.expectBytes) {
       if (!res.ok) { var eb = null; try { eb = await res.json(); } catch (e) {} return { ok: false, status: res.status, data: eb, code: eb && eb.code, message: (eb && (eb.message || eb.error)) || '请求失败（' + res.status + '）' }; }
@@ -175,6 +185,16 @@
       btn.textContent = '重新发送（' + left + ' 秒）';
     }, 1000);
   }
+  // 提交防重（W-05）：表单提交执行期间禁用提交按钮并置在飞标志，弱网下连点/
+  // 双击不再发出多份相同请求。返回解锁函数；表单已在提交中时返回 null，
+  // 调用方应直接 return。意见反馈页原有的禁用写法与此同口径。
+  function lockSubmit(form) {
+    if (!form || form.dataset.qfLocked) return null;
+    form.dataset.qfLocked = '1';
+    var btn = form.querySelector('button[type="submit"]');
+    if (btn) btn.disabled = true;
+    return function () { delete form.dataset.qfLocked; if (btn) btn.disabled = false; };
+  }
   // crypto-adapter 是 ES 模块（defer 执行），晚于本经典脚本：就绪后补接线
   function wireCrypto() {
     if (!(window.QFCrypto && QFCrypto.setApi)) return false;
@@ -205,7 +225,7 @@
       var headers = {}; var tok = storeGet('qf_access_token'); if (tok) headers['Authorization'] = 'Bearer ' + tok;
       var v = (ver != null && ver !== '') ? ver : avatarBust;
       var url = API + path + (path.indexOf('?') >= 0 ? '&' : '?') + 'v=' + encodeURIComponent(v);
-      var res = await fetch(url, { headers: headers, cache: 'no-store' });
+      var res = await fetchTimeout(url, { headers: headers, cache: 'no-store' });
       if (!res.ok) return '';
       return URL.createObjectURL(await res.blob());
     } catch (e) { return ''; }
@@ -253,7 +273,7 @@
   var maintenanceOn = false;
   async function checkMaintenance() {
     try {
-      var res = await fetch(RELEASE_URL, { cache: 'no-store' });
+      var res = await fetchTimeout(RELEASE_URL, { cache: 'no-store' });
       if (!res.ok) return;
       var j = await res.json();
       var on = !!(j && j.maintenance === true);
@@ -540,10 +560,13 @@
       '<p class="muted small">尚未注册？<a href="#/register">立即注册</a>（与客户端共用同一账号）。</p></div>';
     $('#loginForm').addEventListener('submit', async function (ev) {
       ev.preventDefault();
-      var fd = new FormData(ev.target);
-      var body = Object.assign({ identifier: String(fd.get('identifier')).trim(), password: String(fd.get('password')) }, authDeviceBody());
-      var r = await api('/auth/login', { method: 'POST', auth: false, body: body });
-      handleAuthResult(r, !!fd.get('remember'), { identifier: body.identifier, password: body.password });
+      var unlock = lockSubmit(ev.target); if (!unlock) return;
+      try {
+        var fd = new FormData(ev.target);
+        var body = Object.assign({ identifier: String(fd.get('identifier')).trim(), password: String(fd.get('password')) }, authDeviceBody());
+        var r = await api('/auth/login', { method: 'POST', auth: false, body: body });
+        handleAuthResult(r, !!fd.get('remember'), { identifier: body.identifier, password: body.password });
+      } finally { unlock(); }
     });
     initGoogleButton();
   }
@@ -594,11 +617,14 @@
       '<span class="row"><button class="primary" type="submit">验证并登录</button><button class="ghost" type="button" id="stepUpResend">重新发送验证码</button></span></form></div>';
     $('#stepUpForm').addEventListener('submit', async function (ev) {
       ev.preventDefault();
-      var code = String(new FormData(ev.target).get('code')).trim();
-      var body = Object.assign({ stepUpToken: stepUp.token, code: code }, authDeviceBody());
-      var r = await api('/auth/stepup/verify', { method: 'POST', auth: false, body: body });
-      if (r.ok && r.data && r.data.accessToken) { stepUp.token = ''; finishLogin(r.data, remember); }
-      else { $('#stepUpErr').textContent = r.message || '验证失败，请重新输入。'; var b = $('#loginBlock'); if (b) b.innerHTML = authBlockHtml(r); }
+      var unlock = lockSubmit(ev.target); if (!unlock) return;
+      try {
+        var code = String(new FormData(ev.target).get('code')).trim();
+        var body = Object.assign({ stepUpToken: stepUp.token, code: code }, authDeviceBody());
+        var r = await api('/auth/stepup/verify', { method: 'POST', auth: false, body: body });
+        if (r.ok && r.data && r.data.accessToken) { stepUp.token = ''; finishLogin(r.data, remember); }
+        else { $('#stepUpErr').textContent = r.message || '验证失败，请重新输入。'; var b = $('#loginBlock'); if (b) b.innerHTML = authBlockHtml(r); }
+      } finally { unlock(); }
     });
     $('#stepUpResend').addEventListener('click', async function () {
       var btn = this; var errEl = $('#stepUpErr');
@@ -619,13 +645,16 @@
       '<div class="err" id="compErr"></div><button class="primary" type="submit">完成并登录</button></form></div>';
     $('#compForm').addEventListener('submit', async function (ev) {
       ev.preventDefault();
-      var fd = new FormData(ev.target);
-      if (String(fd.get('password')) !== String(fd.get('password2'))) { $('#compErr').textContent = '两次输入的密码不一致，请重新输入。'; return; }
-      var body = Object.assign({ completionToken: completion.token, username: String(fd.get('username')).trim(), password: String(fd.get('password')) }, authDeviceBody());
-      var r = await api('/auth/google/complete', { method: 'POST', auth: false, body: body });
-      if (r.ok && r.data && r.data.accessToken) { completion.token = ''; finishLogin(r.data, remember); }
-      else if (r.ok && r.data && (r.data.needsStepUp || r.data.stepUpRequired)) { stepUp.token = r.data.stepUpToken || ''; showStepUp(remember); }
-      else $('#compErr').textContent = r.message || '设置失败，请检查后重试。';
+      var unlock = lockSubmit(ev.target); if (!unlock) return;
+      try {
+        var fd = new FormData(ev.target);
+        if (String(fd.get('password')) !== String(fd.get('password2'))) { $('#compErr').textContent = '两次输入的密码不一致，请重新输入。'; return; }
+        var body = Object.assign({ completionToken: completion.token, username: String(fd.get('username')).trim(), password: String(fd.get('password')) }, authDeviceBody());
+        var r = await api('/auth/google/complete', { method: 'POST', auth: false, body: body });
+        if (r.ok && r.data && r.data.accessToken) { completion.token = ''; finishLogin(r.data, remember); }
+        else if (r.ok && r.data && (r.data.needsStepUp || r.data.stepUpRequired)) { stepUp.token = r.data.stepUpToken || ''; showStepUp(remember); }
+        else $('#compErr').textContent = r.message || '设置失败，请检查后重试。';
+      } finally { unlock(); }
     });
   }
   // 注册（复用官网五栏口径：账户ID/邮箱/密码/确认密码/邮箱验证码，三步接口 request-code→verify→complete）
@@ -653,19 +682,22 @@
     });
     $('#regForm').addEventListener('submit', async function (ev) {
       ev.preventDefault();
-      var fd = new FormData(ev.target);
-      var err = $('#regErr'), ok = $('#regOk'); err.textContent = ''; ok.textContent = '';
-      if (String(fd.get('password')) !== String(fd.get('password2'))) { err.textContent = '两次输入的密码不一致，请重新输入。'; return; }
-      var email = String(fd.get('email')).trim(), code = String(fd.get('code')).trim();
-      if (!ticket) {
-        var vr = await api('/auth/register/verify', { method: 'POST', auth: false, body: { email: email, code: code } });
-        if (!vr.ok || !vr.data || !vr.data.ticket) { err.textContent = vr.message || '验证码不正确或已过期，请重新获取。'; return; }
-        ticket = vr.data.ticket;
-      }
-      var body = Object.assign({ ticket: ticket, username: String(fd.get('username')).trim(), password: String(fd.get('password')) }, authDeviceBody());
-      var r = await api('/auth/register/complete', { method: 'POST', auth: false, body: body });
-      if (r.ok && r.data && r.data.accessToken) { finishLogin(r.data, true); return; }
-      err.textContent = r.message || '注册失败，请稍后重试。';
+      var unlock = lockSubmit(ev.target); if (!unlock) return;
+      try {
+        var fd = new FormData(ev.target);
+        var err = $('#regErr'), ok = $('#regOk'); err.textContent = ''; ok.textContent = '';
+        if (String(fd.get('password')) !== String(fd.get('password2'))) { err.textContent = '两次输入的密码不一致，请重新输入。'; return; }
+        var email = String(fd.get('email')).trim(), code = String(fd.get('code')).trim();
+        if (!ticket) {
+          var vr = await api('/auth/register/verify', { method: 'POST', auth: false, body: { email: email, code: code } });
+          if (!vr.ok || !vr.data || !vr.data.ticket) { err.textContent = vr.message || '验证码不正确或已过期，请重新获取。'; return; }
+          ticket = vr.data.ticket;
+        }
+        var body = Object.assign({ ticket: ticket, username: String(fd.get('username')).trim(), password: String(fd.get('password')) }, authDeviceBody());
+        var r = await api('/auth/register/complete', { method: 'POST', auth: false, body: body });
+        if (r.ok && r.data && r.data.accessToken) { finishLogin(r.data, true); return; }
+        err.textContent = r.message || '注册失败，请稍后重试。';
+      } finally { unlock(); }
     });
   }
   // 忘记密码（邮箱验证码重置；同时是冻结账户的第一条出路）
@@ -690,12 +722,15 @@
     });
     $('#resetForm').addEventListener('submit', async function (ev) {
       ev.preventDefault();
-      var fd = new FormData(ev.target);
-      var err = $('#resetErr'), ok = $('#resetOk'); err.textContent = ''; ok.textContent = '';
-      if (String(fd.get('newPassword')) !== String(fd.get('newPassword2'))) { err.textContent = '两次输入的新密码不一致，请重新输入。'; return; }
-      var r = await api('/auth/password/reset/confirm', { method: 'POST', auth: false, body: { email: String(fd.get('email')).trim(), code: String(fd.get('code')).trim(), newPassword: String(fd.get('newPassword')) } });
-      if (r.ok) { ok.textContent = '密码已重置，请使用新密码登录。'; setTimeout(function () { location.hash = '#/login'; }, 900); }
-      else err.textContent = r.message || '重置失败，请稍后重试。';
+      var unlock = lockSubmit(ev.target); if (!unlock) return;
+      try {
+        var fd = new FormData(ev.target);
+        var err = $('#resetErr'), ok = $('#resetOk'); err.textContent = ''; ok.textContent = '';
+        if (String(fd.get('newPassword')) !== String(fd.get('newPassword2'))) { err.textContent = '两次输入的新密码不一致，请重新输入。'; return; }
+        var r = await api('/auth/password/reset/confirm', { method: 'POST', auth: false, body: { email: String(fd.get('email')).trim(), code: String(fd.get('code')).trim(), newPassword: String(fd.get('newPassword')) } });
+        if (r.ok) { ok.textContent = '密码已重置，请使用新密码登录。'; setTimeout(function () { location.hash = '#/login'; }, 900); }
+        else err.textContent = r.message || '重置失败，请稍后重试。';
+      } finally { unlock(); }
     });
   }
   // 申诉：ban=封禁申诉（POST /appeals，账密核验）；recovery=找回申诉（POST /appeals/recovery）；status=封禁申诉状态（POST /appeals/status）
@@ -706,18 +741,22 @@
         '<div class="err" id="apStatusErr"></div><button class="primary" type="submit">查询</button></form><div id="apStatusOut" style="margin-top:12px;"></div>' +
         '<p style="margin-top:10px;"><a href="#/login">返回登录</a></p></div>';
       $('#apStatusForm').addEventListener('submit', async function (ev) {
-        ev.preventDefault(); var fd = new FormData(ev.target);
-        var r = await api('/appeals/status', { method: 'POST', auth: false, body: { identifier: String(fd.get('identifier')).trim(), password: String(fd.get('password')) } });
-        var out = $('#apStatusOut');
-        if (!r.ok) { $('#apStatusErr').textContent = r.message || '查询失败，请核对后重试。'; return; }
-        $('#apStatusErr').textContent = '';
-        var a = r.data && r.data.appeal;
-        out.innerHTML = a ? '<table class="kv"><tr><td>申诉状态</td><td>' + esc(a.status === 'pending' ? '审核中' : a.status === 'approved' ? '已通过' : a.status === 'rejected' ? '未通过' : a.status) + '</td></tr>' +
-          '<tr><td>提交时间</td><td>' + esc(fmtTs(a.createdAt)) + '</td></tr>' +
-          (a.reviewedAt ? '<tr><td>审核时间</td><td>' + esc(fmtTs(a.reviewedAt)) + '</td></tr>' : '') +
-          (a.reviewNote ? '<tr><td>审核说明</td><td>' + esc(a.reviewNote) + '</td></tr>' : '') + '</table>' +
-          (r.data.remaining != null ? '<p class="muted small">本次封禁还可申诉 ' + esc(r.data.remaining) + ' 次。</p>' : '')
-          : '<p class="muted">暂未查询到申诉记录。</p>';
+        ev.preventDefault();
+        var unlock = lockSubmit(ev.target); if (!unlock) return;
+        try {
+          var fd = new FormData(ev.target);
+          var r = await api('/appeals/status', { method: 'POST', auth: false, body: { identifier: String(fd.get('identifier')).trim(), password: String(fd.get('password')) } });
+          var out = $('#apStatusOut');
+          if (!r.ok) { $('#apStatusErr').textContent = r.message || '查询失败，请核对后重试。'; return; }
+          $('#apStatusErr').textContent = '';
+          var a = r.data && r.data.appeal;
+          out.innerHTML = a ? '<table class="kv"><tr><td>申诉状态</td><td>' + esc(zhCode(REVIEW_STATE, a.status, '处理中')) + '</td></tr>' +
+            '<tr><td>提交时间</td><td>' + esc(fmtTs(a.createdAt)) + '</td></tr>' +
+            (a.reviewedAt ? '<tr><td>审核时间</td><td>' + esc(fmtTs(a.reviewedAt)) + '</td></tr>' : '') +
+            (a.reviewNote ? '<tr><td>审核说明</td><td>' + esc(a.reviewNote) + '</td></tr>' : '') + '</table>' +
+            (r.data.remaining != null ? '<p class="muted small">本次封禁还可申诉 ' + esc(r.data.remaining) + ' 次。</p>' : '')
+            : '<p class="muted">暂未查询到申诉记录。</p>';
+        } finally { unlock(); }
       });
       return;
     }
@@ -731,11 +770,15 @@
         '<div class="err" id="recErr"></div><div class="ok" id="recOk"></div><button class="primary" type="submit">提交找回申诉</button></form>' +
         '<p style="margin-top:10px;"><a href="#/login">返回登录</a></p></div>';
       $('#recForm').addEventListener('submit', async function (ev) {
-        ev.preventDefault(); var fd = new FormData(ev.target);
-        var split = function (v) { return String(v || '').split('\n').map(function (x) { return x.trim(); }).filter(Boolean); };
-        var r = await api('/appeals/recovery', { method: 'POST', auth: false, body: { account: String(fd.get('account')).trim(), oldPasswords: split(fd.get('oldPasswords')), deviceModels: split(fd.get('deviceModels')), loginLocations: split(fd.get('loginLocations')), note: String(fd.get('note') || '').trim() } });
-        if (r.ok) { $('#recErr').textContent = ''; $('#recOk').textContent = '找回申诉已提交，请耐心等待审核。'; }
-        else $('#recErr').textContent = r.message || '提交失败，请稍后重试。';
+        ev.preventDefault();
+        var unlock = lockSubmit(ev.target); if (!unlock) return;
+        try {
+          var fd = new FormData(ev.target);
+          var split = function (v) { return String(v || '').split('\n').map(function (x) { return x.trim(); }).filter(Boolean); };
+          var r = await api('/appeals/recovery', { method: 'POST', auth: false, body: { account: String(fd.get('account')).trim(), oldPasswords: split(fd.get('oldPasswords')), deviceModels: split(fd.get('deviceModels')), loginLocations: split(fd.get('loginLocations')), note: String(fd.get('note') || '').trim() } });
+          if (r.ok) { $('#recErr').textContent = ''; $('#recOk').textContent = '找回申诉已提交，请耐心等待审核。'; }
+          else $('#recErr').textContent = r.message || '提交失败，请稍后重试。';
+        } finally { unlock(); }
       });
       return;
     }
@@ -745,10 +788,14 @@
       '<div class="err" id="banAppealErr"></div><div class="ok" id="banAppealOk"></div><button class="primary" type="submit">提交申诉</button></form>' +
       '<p class="row wrap" style="margin-top:10px;"><a href="#/appeal/status">查询申诉状态</a><a href="#/login">返回登录</a></p></div>';
     $('#banAppealForm').addEventListener('submit', async function (ev) {
-      ev.preventDefault(); var fd = new FormData(ev.target);
-      var r = await api('/appeals', { method: 'POST', auth: false, body: { identifier: String(fd.get('identifier')).trim(), password: String(fd.get('password')), content: String(fd.get('content')).trim() } });
-      if (r.ok) { $('#banAppealErr').textContent = ''; $('#banAppealOk').textContent = '申诉已提交，正在审核中。您可在「查询申诉状态」中查看处理结果。'; }
-      else $('#banAppealErr').textContent = r.message || '提交失败，请稍后重试。';
+      ev.preventDefault();
+      var unlock = lockSubmit(ev.target); if (!unlock) return;
+      try {
+        var fd = new FormData(ev.target);
+        var r = await api('/appeals', { method: 'POST', auth: false, body: { identifier: String(fd.get('identifier')).trim(), password: String(fd.get('password')), content: String(fd.get('content')).trim() } });
+        if (r.ok) { $('#banAppealErr').textContent = ''; $('#banAppealOk').textContent = '申诉已提交，正在审核中。您可在「查询申诉状态」中查看处理结果。'; }
+        else $('#banAppealErr').textContent = r.message || '提交失败，请稍后重试。';
+      } finally { unlock(); }
     });
   }
 
@@ -794,6 +841,9 @@
   }
   function showRedeemConfirm(p, balance) {
     var box = $('#redeemBox'); if (!box) return;
+    // 幂等键按单生成（W-05）：打开确认框时生成一次，本单（含失败重试）全程
+    // 复用同一键；此前每次提交现造新键，双击即成两单、扣两次分。
+    var redeemKey = 'web-' + Date.now() + '-' + Math.floor(Math.random() * 1e9);
     var needsPayout = p.fulfillment === 'usdt' || p.fulfillment === 'choice';
     box.innerHTML = '<div class="notice" style="margin-top:12px;"><strong>确认兑换</strong><br>商品：' + esc(p.name) + ' · 需 ' + esc(p.pricePoints) + ' 积分（当前余额 ' + esc(balance) + ' 分）' +
       (p.requiresReview ? '<br>该商品兑换后需人工审核，审核通过后发放。' : '') +
@@ -814,18 +864,38 @@
     $('#redeemCancel').addEventListener('click', function () { box.innerHTML = ''; });
     $('#redeemForm').addEventListener('submit', async function (ev) {
       ev.preventDefault();
-      var fd = new FormData(ev.target);
-      var body = { productId: p.id, idempotencyKey: 'web-' + Date.now() + '-' + Math.floor(Math.random() * 1e9) };
-      if (p.fulfillment === 'usdt') { body.payoutMethod = 'usdt'; body.payoutAddress = String(fd.get('payoutAddress') || '').trim(); }
-      if (p.fulfillment === 'choice') {
-        body.payoutMethod = String(fd.get('payoutMethod'));
-        if (body.payoutMethod === 'usdt') body.payoutAddress = String(fd.get('payoutAddress') || '').trim();
-        else body.payoutEmail = String(fd.get('payoutEmail') || '').trim();
-      }
-      var r = await api('/redeem/orders', { method: 'POST', body: body });
-      if (r.ok) { box.innerHTML = '<p class="ok" style="margin-top:12px;">兑换已提交' + (p.requiresReview ? '，等待人工审核' : '') + '。您可在「我的兑换」中查看进度。</p>'; loadMyOrders(); }
-      else $('#redeemErr').textContent = r.message || '兑换失败，请稍后重试。';
+      var unlock = lockSubmit(ev.target); if (!unlock) return;
+      try {
+        var fd = new FormData(ev.target);
+        var body = { productId: p.id, idempotencyKey: redeemKey };
+        if (p.fulfillment === 'usdt') { body.payoutMethod = 'usdt'; body.payoutAddress = String(fd.get('payoutAddress') || '').trim(); }
+        if (p.fulfillment === 'choice') {
+          body.payoutMethod = String(fd.get('payoutMethod'));
+          if (body.payoutMethod === 'usdt') body.payoutAddress = String(fd.get('payoutAddress') || '').trim();
+          else body.payoutEmail = String(fd.get('payoutEmail') || '').trim();
+        }
+        var r = await api('/redeem/orders', { method: 'POST', body: body });
+        if (r.ok) { box.innerHTML = '<p class="ok" style="margin-top:12px;">兑换已提交' + (p.requiresReview ? '，等待人工审核' : '') + '。您可在「我的兑换」中查看进度。</p>'; loadMyOrders(); }
+        else $('#redeemErr').textContent = r.message || '兑换失败，请稍后重试。';
+      } finally { unlock(); }
     });
+  }
+  // 状态/类型码中文映射（W-04）：全站渲染一律走 zhCode，未知英文码不裸上屏，
+  // 统一给大白话兜底，原始码只进控制台；已是中文的服务端文本原样保留。
+  var POST_STATUS = { published: '已发布', pending: '审核中', rejected: '未通过', deleted: '已删除', hidden: '已隐藏' };
+  var REVIEW_STATE = { pending: '审核中', approved: '已通过', rejected: '未通过' };
+  var CAMP_STATUS = { active: '已上线', pending: '审核中', rejected: '未通过', closed: '已关闭' };
+  var ACCOUNT_STATUS = { active: '正常', banned: '已封禁', frozen: '已冻结', deleting: '注销冷静期中', deleted: '已注销' };
+  var BAN_LEVEL = { warn: '警告', timed: '限时封禁', permanent: '永久封禁' };
+  var BAN_SOURCE = { admin: '站长操作', owner: '站长操作', auto: '系统自动', system: '系统自动', risk: '风控自动', report: '举报处置', appeal: '申诉处理' };
+  var BAN_STATUS = { active: '生效中', lifted: '已解除', expired: '已到期' };
+  function zhCode(map, code, fallback) {
+    if (code == null || code === '') return fallback;
+    if (map && map[code]) return map[code];
+    var s = String(code);
+    if (/[^\x00-\x7F]/.test(s)) return s;
+    if (window.console && console.debug) console.debug('[zhCode] 未映射状态码：', s);
+    return fallback;
   }
   var ORDER_STATUS = { pending_review: '待审核', pending_payout: '待发放', paid: '已发放', issued: '已发放', rejected: '未通过', cancelled: '已取消', refunded: '已退分' };
   async function loadMyOrders() {
@@ -834,7 +904,7 @@
     if (!r.ok) { box.innerHTML = '<p class="err">' + esc(r.message) + '</p>'; return; }
     var orders = (r.data && r.data.orders) || [];
     box.innerHTML = orders.length ? '<div class="list">' + orders.map(function (o) {
-      return '<div class="item"><span class="grow"><strong>' + esc(o.productName || '兑换商品') + '</strong><br><span class="muted small">' + esc(o.pricePoints) + ' 积分 · ' + esc(ORDER_STATUS[o.status] || o.status) + ' · ' + esc(fmtTs(o.createdAt)) + '</span></span>' +
+      return '<div class="item"><span class="grow"><strong>' + esc(o.productName || '兑换商品') + '</strong><br><span class="muted small">' + esc(o.pricePoints) + ' 积分 · ' + esc(zhCode(ORDER_STATUS, o.status, '处理中')) + ' · ' + esc(fmtTs(o.createdAt)) + '</span></span>' +
         (o.codeAvailable ? '<button class="ghost" data-reveal="' + esc(o.id) + '">查看兑换码</button>' : '') + '</div>';
     }).join('') + '</div><div id="revealBox"></div>' : '<p class="muted">暂无兑换记录。</p>';
     box.querySelectorAll('[data-reveal]').forEach(function (b) { b.addEventListener('click', function () { showRevealForm(b.getAttribute('data-reveal')); }); });
@@ -853,10 +923,14 @@
       $('#revealSendSt').className = 'small ' + (r.ok ? 'ok' : 'err');
     });
     $('#revealForm').addEventListener('submit', async function (ev) {
-      ev.preventDefault(); var fd = new FormData(ev.target);
-      var r = await api('/redeem/orders/' + encodeURIComponent(orderId) + '/code/reveal', { method: 'POST', body: { password: String(fd.get('password')), emailCode: String(fd.get('emailCode')).trim() } });
-      if (r.ok && r.data && r.data.code) { $('#revealErr').textContent = ''; $('#revealOut').innerHTML = '<p class="notice">兑换码：<strong style="font-size:17px;">' + esc(r.data.code) + '</strong><br><span class="small muted">请及时保存；本页刷新后需重新核验才能再次查看。</span></p>'; }
-      else $('#revealErr').textContent = r.message || '核验失败，请重试。';
+      ev.preventDefault();
+      var unlock = lockSubmit(ev.target); if (!unlock) return;
+      try {
+        var fd = new FormData(ev.target);
+        var r = await api('/redeem/orders/' + encodeURIComponent(orderId) + '/code/reveal', { method: 'POST', body: { password: String(fd.get('password')), emailCode: String(fd.get('emailCode')).trim() } });
+        if (r.ok && r.data && r.data.code) { $('#revealErr').textContent = ''; $('#revealOut').innerHTML = '<p class="notice">兑换码：<strong style="font-size:17px;">' + esc(r.data.code) + '</strong><br><span class="small muted">请及时保存；本页刷新后需重新核验才能再次查看。</span></p>'; }
+        else $('#revealErr').textContent = r.message || '核验失败，请重试。';
+      } finally { unlock(); }
     });
   }
   var LEDGER_TYPE = { earn: '使用计时', forum_daily: '论坛每日积分', forum_milestone: '千赞奖励', redeem: '兑换支出', refund: '兑换退分', admin: '管理员调整', revoke: '撤销' };
@@ -867,7 +941,7 @@
     var rows = (led.data && led.data.entries) || [];
     box.innerHTML = rows.length ? '<table class="kv">' + rows.map(function (x) {
       var amt = Number(x.amount);
-      return '<tr><td>' + esc(fmtTs(x.created_at)) + '</td><td>' + esc(x.note || LEDGER_TYPE[x.type] || x.type || '') + '</td><td style="text-align:right;">' + esc(isFinite(amt) ? (amt > 0 ? '+' + amt : amt) : x.amount) + '</td></tr>';
+      return '<tr><td>' + esc(fmtTs(x.created_at)) + '</td><td>' + esc(x.note || (x.type ? zhCode(LEDGER_TYPE, x.type, '其他') : '')) + '</td><td style="text-align:right;">' + esc(isFinite(amt) ? (amt > 0 ? '+' + amt : amt) : x.amount) + '</td></tr>';
     }).join('') + '</table>' : '<p class="muted">暂无积分记录。</p>';
   }
 
@@ -950,7 +1024,7 @@
   function authorId(p) { return (p.author && p.author.userId) || ''; }
   function postStatusTag(p) {
     if (!p.status || p.status === 'published') return '';
-    var label = p.status === 'pending' ? '审核中' : p.status === 'rejected' ? '未通过' : p.status === 'deleted' ? '已删除' : p.status;
+    var label = zhCode(POST_STATUS, p.status, '处理中');
     return ' <span class="tag ' + (p.status === 'pending' ? 'blue' : 'red') + '">' + esc(label) + '</span>';
   }
   function postItemHtml(p, opts) {
@@ -1220,11 +1294,11 @@
         var apps = hd.rewardApplications || [];
         body.innerHTML = '<div class="card"><h2>我的帖子</h2><div class="list">' + ((hd.posts || []).length ? hd.posts.map(function (p) { return postItemHtml(p, { mineActions: true }); }).join('') : '<p class="muted">暂无帖子。</p>') + '</div></div>' +
           '<div class="card"><h2>千赞奖励申请</h2>' + (apps.length ? '<div class="list">' + apps.map(function (a) {
-            return '<div class="item"><span class="grow"><strong>' + esc(a.postTitle || ('帖子 #' + a.postId)) + '</strong><br><span class="muted small">申请时获赞 ' + esc(a.likeCountAtApply) + ' · 状态：' + esc(a.state === 'pending' ? '审核中' : a.state === 'approved' ? '已通过' : a.state === 'rejected' ? '未通过' : a.state) + ' · ' + esc(fmtTs(a.createdAt)) + (a.rejectReason ? ' · ' + esc(a.rejectReason) : '') + '</span></span></div>';
+            return '<div class="item"><span class="grow"><strong>' + esc(a.postTitle || ('帖子 #' + a.postId)) + '</strong><br><span class="muted small">申请时获赞 ' + esc(a.likeCountAtApply) + ' · 状态：' + esc(zhCode(REVIEW_STATE, a.state, '处理中')) + ' · ' + esc(fmtTs(a.createdAt)) + (a.rejectReason ? ' · ' + esc(a.rejectReason) : '') + '</span></span></div>';
           }).join('') + '</div>' : '<p class="muted">暂无申请。帖子获赞达到 1000 后，可在帖子详情页提交千赞奖励申请。</p>') + '</div>';
       } else {
         body.innerHTML = '<div class="card"><h2>我的评价</h2><div class="list">' + ((hd.comments || []).length ? hd.comments.map(function (c) {
-          return '<div class="item"><span class="grow"><a href="#/forum/post/' + esc(c.postId) + '"><strong>' + esc(c.postTitle || '帖子') + '</strong></a>' + (c.status && c.status !== 'published' ? ' <span class="chip">' + esc(c.status === 'pending' ? '审核中' : c.status) + '</span>' : '') + '<br><span class="muted">' + esc(c.content) + '</span><br><span class="muted small">' + esc(fmtTs(c.createdAt)) + '</span></span></div>';
+          return '<div class="item"><span class="grow"><a href="#/forum/post/' + esc(c.postId) + '"><strong>' + esc(c.postTitle || '帖子') + '</strong></a>' + (c.status && c.status !== 'published' ? ' <span class="chip">' + esc(zhCode(POST_STATUS, c.status, '处理中')) + '</span>' : '') + '<br><span class="muted">' + esc(c.content) + '</span><br><span class="muted small">' + esc(fmtTs(c.createdAt)) + '</span></span></div>';
         }).join('') : '<p class="muted">暂无评价。</p>') + '</div></div>';
       }
       fillAvatars(body);
@@ -1333,11 +1407,15 @@
         '<label>标题<input name="title" required maxlength="80"></label><label>正文<textarea name="content" rows="5" required></textarea></label>' +
         '<div class="err" id="postErr"></div><span class="muted small">帖子发布后将进入审核，审核通过后公开显示。</span><button class="primary" type="submit">提交发布</button></form>';
       $('#postForm').addEventListener('submit', async function (ev) {
-        ev.preventDefault(); var fd = new FormData(ev.target);
-        var bodyObj = { board: String(fd.get('board')), title: String(fd.get('title')).trim(), content: String(fd.get('content')).trim() };
-        var campVal = String(fd.get('campId') || ''); if (campVal) bodyObj.campId = Number(campVal);
-        var rr = await api('/forum/posts', { method: 'POST', body: bodyObj });
-        if (rr.ok) { forumState.tab = 'home'; pageForum(route()); } else $('#postErr').textContent = rr.message || '发布失败，请稍后重试。';
+        ev.preventDefault();
+        var unlock = lockSubmit(ev.target); if (!unlock) return;
+        try {
+          var fd = new FormData(ev.target);
+          var bodyObj = { board: String(fd.get('board')), title: String(fd.get('title')).trim(), content: String(fd.get('content')).trim() };
+          var campVal = String(fd.get('campId') || ''); if (campVal) bodyObj.campId = Number(campVal);
+          var rr = await api('/forum/posts', { method: 'POST', body: bodyObj });
+          if (rr.ok) { forumState.tab = 'home'; pageForum(route()); } else $('#postErr').textContent = rr.message || '发布失败，请稍后重试。';
+        } finally { unlock(); }
       });
     });
     // 加载更多：仅帖子流续页（与首屏同一查询口径，offset 递进），追加为资讯流条目
@@ -1382,7 +1460,7 @@
     if (c.status === 'pending') return '<span class="tag blue">审核中</span>';
     if (c.status === 'rejected') return '<span class="tag red">未通过' + (c.modCategory ? '（' + esc(c.modCategory) + '）' : '') + '</span>';
     if (c.status === 'closed') return '<span class="tag red">已关闭</span>';
-    return '<span class="tag">' + esc(c.status || '') + '</span>';
+    return '<span class="tag">' + esc(zhCode(CAMP_STATUS, c.status, '处理中')) + '</span>';
   }
   // 营地头像客户端处理（迁移 0043 接口：{mime, dataBase64}，服务端上限
   // 200KB）：小图直传；大图 canvas 居中裁方＋JPEG 逐级压缩到 195KB 内。
@@ -1576,7 +1654,7 @@
       (mine ? '<button class="ghost" id="delOwnPostBtn" type="button" style="color:var(--danger);border-color:#f0c4c4;">删除</button>' : '') +
       (owner && !mine ? '<button class="ghost" id="ownerDelPostBtn" type="button" style="color:var(--danger);border-color:#f0c4c4;">删除帖子（站长）</button>' : '') +
       (reward && reward.eligible ? '<button class="primary" id="rewardBtn" type="button">申请千赞奖励</button>' : '') +
-      (reward && reward.state && reward.state !== 'none' ? '<span class="muted small">千赞奖励申请状态：' + esc(reward.state === 'pending' ? '审核中' : reward.state === 'approved' ? '已通过' : reward.state) + '</span>' : '') +
+      (reward && reward.state && reward.state !== 'none' ? '<span class="muted small">千赞奖励申请状态：' + esc(zhCode(REVIEW_STATE, reward.state, '处理中')) + '</span>' : '') +
       '</p><p class="small" id="postActionSt" role="status"></p></div>' +
       '<div class="card"><h2>回复（' + esc(replies.length) + '）</h2><div>' +
       (replies.length ? replies.map(function (x) {
@@ -1584,7 +1662,7 @@
         var xid = (x.author && x.author.userId) || '';
         return '<div class="post-row">' + avatarSlotHtml(xid, '', true, xname, 36) +
           '<div class="post-main"><div class="post-author"><a href="#/forum/user/' + esc(xid) + '"><strong style="color:var(--ink);">' + esc(xname) + '</strong></a>' + ownerBadgeHtml(xid, ownerFlagOf(x.author)) + '<span class="faint">' + esc(relTime(x.createdAt)) + '</span>' +
-          (x.status && x.status !== 'published' ? '<span class="tag ' + (x.status === 'pending' ? 'blue' : 'red') + '">' + esc(x.status === 'pending' ? '审核中' : x.status) + '</span>' : '') +
+          (x.status && x.status !== 'published' ? '<span class="tag ' + (x.status === 'pending' ? 'blue' : 'red') + '">' + esc(zhCode(POST_STATUS, x.status, '处理中')) + '</span>' : '') +
           (owner ? '<button class="mini-btn danger" type="button" data-owndelreply="' + esc(x.id) + '">删除</button>' : '') + '</div>' +
           '<div style="white-space:pre-wrap;word-break:break-word;">' + esc(x.content) + '</div></div></div>';
       }).join('') : '<p class="empty">暂无回复。</p>') + '</div>' +
@@ -1627,7 +1705,8 @@
     });
     var reportBtn = $('#reportBtn');
     if (reportBtn) reportBtn.addEventListener('click', async function () {
-      var reason = prompt('请填写举报原因：'); if (!reason) return;
+      var reason = await appPromptDlg('举报帖子', '请填写举报原因，提交后将由管理员核查处理。', '例如：垃圾广告、人身攻击、违规内容…', '提交举报');
+      if (!reason) return;
       var rr = await api('/forum/posts/' + encodeURIComponent(id) + '/report', { method: 'POST', body: { reason: reason } });
       st.textContent = rr.ok ? '举报已提交，感谢您的反馈。' : (rr.message || '举报失败，请稍后重试。');
       st.className = 'small ' + (rr.ok ? 'ok' : 'err');
@@ -1642,9 +1721,12 @@
     var rf = $('#replyForm');
     if (rf) rf.addEventListener('submit', async function (ev) {
       ev.preventDefault();
-      var content = String(new FormData(ev.target).get('content')).trim();
-      var rr = await api('/forum/posts/' + encodeURIComponent(id) + '/replies', { method: 'POST', body: { content: content } });
-      if (rr.ok) forumPostPage(id); else $('#replyErr').textContent = rr.message || '回复失败，请稍后重试。';
+      var unlock = lockSubmit(ev.target); if (!unlock) return;
+      try {
+        var content = String(new FormData(ev.target).get('content')).trim();
+        var rr = await api('/forum/posts/' + encodeURIComponent(id) + '/replies', { method: 'POST', body: { content: content } });
+        if (rr.ok) forumPostPage(id); else $('#replyErr').textContent = rr.message || '回复失败，请稍后重试。';
+      } finally { unlock(); }
     });
   }
 
@@ -2234,7 +2316,7 @@
       '<div id="supOptions"></div>' +
       '<div class="composer"><textarea id="supInput" placeholder="请输入您的问题" rows="2"></textarea><button class="primary" id="supSend" type="button">发送</button></div>' +
       '<p class="row" style="margin-top:8px;"><button class="ghost" id="humanBtn" type="button">转人工</button><span class="small" id="supStatus" role="status"></span></p></div>';
-    var sessionId = null, pollTimer = null, lastMsgId = 0, handedOff = false;
+    var sessionId = null, pollTimer = null, lastMsgId = 0, handedOff = false, askBusy = false;
     var log = $('#supLog'), st = $('#supStatus');
     function addBubble(text, mine, name) {
       var b = el('<div class="bubble' + (mine ? ' mine' : '') + '"></div>');
@@ -2252,20 +2334,29 @@
       if (nb) nb.addEventListener('click', function () { ask('', { notThis: true }); });
     }
     async function ask(text, extra) {
-      extra = extra || {};
-      if (text) addBubble(text, true);
-      var body = Object.assign({ text: text || '' }, extra);
-      if (sessionId) body.sessionId = sessionId;
-      var r = await api('/support/ask', { method: 'POST', body: body });
-      if (!r.ok) { addBubble(r.message || '客服服务暂时不可用，请稍后重试。', false, '智能客服'); return; }
-      var d = r.data || {};
-      if (d.sessionId) sessionId = d.sessionId;
-      if (d.text) addBubble(d.text, false, '智能客服');
-      if (d.action === 'clarify' && d.options) showOptions(d.options);
-      else if (d.alternates && d.alternates.length) showOptions(d.alternates);
-      else showOptions(null);
-      if (d.action === 'handoff_offer') { st.className = 'small warn'; st.textContent = '如需人工处理，请点击「转人工」。'; }
-      if (d.action === 'handoff') handedOff = true;
+      // 在飞守卫（W-05）：上一条未回时连点发送/快捷问题不再重复发问。
+      if (askBusy) return;
+      askBusy = true;
+      var sendBtn = $('#supSend'); if (sendBtn) sendBtn.disabled = true;
+      try {
+        extra = extra || {};
+        if (text) addBubble(text, true);
+        var body = Object.assign({ text: text || '' }, extra);
+        if (sessionId) body.sessionId = sessionId;
+        var r = await api('/support/ask', { method: 'POST', body: body });
+        if (!r.ok) { addBubble(r.message || '客服服务暂时不可用，请稍后重试。', false, '智能客服'); return; }
+        var d = r.data || {};
+        if (d.sessionId) sessionId = d.sessionId;
+        if (d.text) addBubble(d.text, false, '智能客服');
+        if (d.action === 'clarify' && d.options) showOptions(d.options);
+        else if (d.alternates && d.alternates.length) showOptions(d.alternates);
+        else showOptions(null);
+        if (d.action === 'handoff_offer') { st.className = 'small warn'; st.textContent = '如需人工处理，请点击「转人工」。'; }
+        if (d.action === 'handoff') handedOff = true;
+      } finally {
+        askBusy = false;
+        var sb = $('#supSend'); if (sb) sb.disabled = false;
+      }
     }
     async function pollSession() {
       if (!sessionId) return;
@@ -2623,6 +2714,23 @@
       ov.querySelector('[data-act="yes"]').addEventListener('click', function () { close(true); });
     });
   }
+  // 带输入框的站内弹窗（W-01：替代浏览器原生 prompt）：点「提交」且内容
+  // 非空时返回文本，取消/点遮罩返回 null；空内容在弹窗内提示、不关闭。
+  function appPromptDlg(title, body, placeholder, okLabel) {
+    return new Promise(function (resolve) {
+      var ov = el('<div class="own-overlay"><div class="own-dialog" role="dialog" aria-modal="true"><h3>' + esc(title) + '</h3>' + (body ? '<p>' + esc(body) + '</p>' : '') + '<label>举报原因<textarea id="appPromptText" rows="3" maxlength="500" placeholder="' + esc(placeholder || '') + '"></textarea></label><p class="own-err" style="display:none"></p><div class="row-end"><button type="button" class="ghost" data-act="no">取消</button><button type="button" class="primary" data-act="yes">' + esc(okLabel || '提交') + '</button></div></div></div>');
+      document.body.appendChild(ov);
+      var ta = ov.querySelector('#appPromptText'); if (ta) ta.focus();
+      function close(v) { ov.remove(); resolve(v); }
+      ov.addEventListener('click', function (ev) { if (ev.target === ov) close(null); });
+      ov.querySelector('[data-act="no"]').addEventListener('click', function () { close(null); });
+      ov.querySelector('[data-act="yes"]').addEventListener('click', function () {
+        var v = ta.value.trim();
+        if (!v) { ownFieldErr(ov, '请填写举报原因。'); return; }
+        close(v);
+      });
+    });
+  }
   // ownerConfirm 弹窗内的表单校验提示位：collect() 校验不过时调用并 return null。
   function ownFieldErr(ov, msg) {
     var e = ov.querySelector('.own-err');
@@ -2727,7 +2835,7 @@
       ['账户 ID', esc(b.username) + '（内部编号 ' + b.id + '）'],
       ['昵称', esc(b.nickname || '（未设置）') + ownerBadgeHtml(uid, ownerFlagOf(b))],
       ['邮箱', esc(b.emailMasked) + ' <button class="ghost" id="ownViewEmail" type="button">查看完整邮箱</button>'],
-      ['账号状态', esc(b.status) + ((b.passwordFrozen && b.passwordFrozen.frozen) ? ' ｜ 密码已冻结' : '') + ((b.deletion && b.deletion.requested) ? ' ｜ 已申请注销（生效时间 ' + esc(fmtTs(b.deletion.effectiveAt || 0)) + '）' : '')],
+      ['账号状态', esc(zhCode(ACCOUNT_STATUS, b.status, '其他状态')) + ((b.passwordFrozen && b.passwordFrozen.frozen) ? ' ｜ 密码已冻结' : '') + ((b.deletion && b.deletion.requested) ? ' ｜ 已申请注销（生效时间 ' + esc(fmtTs(b.deletion.effectiveAt || 0)) + '）' : '')],
       ['密码', b.passwordSet.set ? '已设置' : '未设置（谷歌新账号待补设）'],
       ['谷歌登录', b.googleBound ? '已绑定' : '未绑定'],
       ['注册时间', esc(fmtTs(b.createdAt))],
@@ -2869,7 +2977,7 @@
       var r = await api('/owner/users/' + uid + '/points'); if (!r.ok) return fail(r);
       var d = r.data;
       var orders = (d.orders || []).map(function (o) {
-        return '<tr><td>#' + o.id + '</td><td>' + esc(o.productName || '') + '</td><td>' + o.pricePoints + ' 分</td><td>' + esc(o.status) + '</td><td>' + esc(o.payoutAddressMasked || o.payoutEmailMasked || '—') + ((o.payoutAddressMasked || o.payoutEmailMasked) ? ' <button class="ghost" data-payout="' + o.id + '" type="button">查看完整发放信息</button>' : '') + '</td></tr>';
+        return '<tr><td>#' + o.id + '</td><td>' + esc(o.productName || '') + '</td><td>' + o.pricePoints + ' 分</td><td>' + esc(zhCode(ORDER_STATUS, o.status, '处理中')) + '</td><td>' + esc(o.payoutAddressMasked || o.payoutEmailMasked || '—') + ((o.payoutAddressMasked || o.payoutEmailMasked) ? ' <button class="ghost" data-payout="' + o.id + '" type="button">查看完整发放信息</button>' : '') + '</td></tr>';
       }).join('');
       body.innerHTML = kvTable([['可用积分', String(d.pointsBalance)], ['冻结积分', String(d.frozenPoints)], ['累计获得', String(d.totalEarned)], ['累计消耗', String(d.totalSpent)], ['附件用量', (((d.attachmentUsage && d.attachmentUsage.bytes) || 0) / 1048576).toFixed(2) + ' MB（' + ((d.attachmentUsage && d.attachmentUsage.files) || 0) + ' 个文件）']]) +
         '<h3>兑换订单</h3>' + (orders ? '<table class="kv"><tr><td>订单</td><td>商品</td><td>积分</td><td>状态</td><td>发放信息</td></tr>' + orders + '</table>' : '<p class="muted">暂无兑换订单。</p>') +
@@ -2888,7 +2996,7 @@
         var lr = await api('/owner/users/' + uid + '/ledger?limit=50');
         var lbox = $('#ownLedgerBox');
         if (!lr.ok) { lbox.innerHTML = '<p class="muted">加载失败。</p>'; return; }
-        var rows = (lr.data.ledger || []).map(function (x) { return '<tr><td>' + esc(fmtTs(x.createdAt)) + '</td><td>' + esc(x.type) + '</td><td>' + (x.amount > 0 ? '+' : '') + x.amount + '</td><td>' + x.balanceAfter + '</td><td>' + esc(x.note || '') + '</td></tr>'; }).join('');
+        var rows = (lr.data.ledger || []).map(function (x) { return '<tr><td>' + esc(fmtTs(x.createdAt)) + '</td><td>' + esc(zhCode(LEDGER_TYPE, x.type, '其他')) + '</td><td>' + (x.amount > 0 ? '+' : '') + x.amount + '</td><td>' + x.balanceAfter + '</td><td>' + esc(x.note || '') + '</td></tr>'; }).join('');
         lbox.innerHTML = rows ? '<table class="kv"><tr><td>时间</td><td>类型</td><td>变动</td><td>余额</td><td>备注</td></tr>' + rows + '</table>' : '<p class="muted">暂无积分流水。</p>';
       });
     } else if (tab === 'devices') {
@@ -2906,7 +3014,7 @@
       var f = rf.data;
       body.innerHTML = kvTable([
         ['已发布帖子', String(f.stats.publishedPosts)], ['已发布回复', String(f.stats.publishedReplies)], ['累计获赞', String(f.stats.likesReceived)],
-        ['创建的营地', (f.camps.created || []).map(function (c) { return esc(c.name) + '（' + esc(c.status) + '）'; }).join('、') || '无'],
+        ['创建的营地', (f.camps.created || []).map(function (c) { return esc(c.name) + '（' + esc(zhCode(CAMP_STATUS, c.status, '处理中')) + '）'; }).join('、') || '无'],
         ['加入营地数', String(f.camps.joinedCount)],
         ['被举报次数', String(f.reports.reportedTimes) + '（成立 ' + f.reports.upheldTimes + ' 次）'],
         ['千赞奖励申请', (f.rewardApplications || []).length + ' 条'],
@@ -2914,7 +3022,7 @@
     } else if (tab === 'risk') {
       var rr2 = await api('/owner/users/' + uid + '/risk'); if (!rr2.ok) return fail(rr2);
       var bans = (rr2.data.bans || []).map(function (x) {
-        return '<tr><td>' + (x.targetKind === 'user' ? '账号' : '设备') + '</td><td>' + esc(x.level) + '</td><td>' + esc(x.source || '') + '</td><td>' + esc(x.status) + '</td><td>' + esc(fmtTs(x.createdAt)) + '</td><td>' + esc(x.reasonCode || '') + '</td></tr>';
+        return '<tr><td>' + (x.targetKind === 'user' ? '账号' : '设备') + '</td><td>' + esc(zhCode(BAN_LEVEL, x.level, '其他')) + '</td><td>' + esc(zhCode(BAN_SOURCE, x.source, '其他')) + '</td><td>' + esc(zhCode(BAN_STATUS, x.status, '其他')) + '</td><td>' + esc(fmtTs(x.createdAt)) + '</td><td>' + esc(x.reasonCode || '') + '</td></tr>';
       }).join('');
       body.innerHTML = bans ? '<table class="kv"><tr><td>对象</td><td>级别</td><td>来源</td><td>状态</td><td>时间</td><td>原因码</td></tr>' + bans + '</table>' : '<p class="muted">暂无封禁记录。</p>';
     } else if (tab === 'audit') {
@@ -3148,7 +3256,7 @@
       ['发放方式', esc(payoutMethodLabel(v))],
       ['USDT 地址', esc(v.address || '—')],
       ['接收邮箱', esc(v.email || '—')],
-      ['状态', esc(ORDER_STATUS[v.status] || v.status)],
+      ['状态', esc(zhCode(ORDER_STATUS, v.status, '处理中'))],
       ['下单时间', esc(redeemTimeText(v))]
     ];
     if (v.reason) rows.push(['驳回原因', esc(v.reason)]);
@@ -3192,7 +3300,7 @@
     var payout = list.filter(function (v) { return v.status === 'pending_payout'; });
     function rowHtml(v, acts) {
       return '<div class="item"><span class="grow"><strong>' + esc(v.product) + '</strong>（#' + esc(v.id) + '，' + esc(v.points) + ' 积分）<br>' +
-        '<span class="muted small">' + esc(v.nickname || '—') + ownerBadgeHtml(v.userId) + (v.username ? '（' + esc(v.username) + '）' : '') + ' · ' + esc(payoutMethodLabel(v)) + ' · ' + esc(redeemTargetText(v)) + ' · ' + esc(ORDER_STATUS[v.status] || v.status) + ' · ' + esc(redeemTimeText(v)) + '</span></span></div>' +
+        '<span class="muted small">' + esc(v.nickname || '—') + ownerBadgeHtml(v.userId) + (v.username ? '（' + esc(v.username) + '）' : '') + ' · ' + esc(payoutMethodLabel(v)) + ' · ' + esc(redeemTargetText(v)) + ' · ' + esc(zhCode(ORDER_STATUS, v.status, '处理中')) + ' · ' + esc(redeemTimeText(v)) + '</span></span></div>' +
         reviewButtons(acts);
     }
     body.innerHTML = '<h3>待审核（' + pending.length + '）</h3>' + (pending.length ? pending.map(function (v) {
