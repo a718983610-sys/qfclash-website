@@ -331,21 +331,31 @@
       view.innerHTML = '<div class="card" style="text-align:center;padding:44px 16px;"><h2>' + MAINTENANCE_TEXT + '</h2><p class="muted">维护结束后本页面将自动恢复使用，无需手动刷新。</p></div>';
       return;
     }
-    if (r.name === 'home') return pageHome();
-    if (r.name === 'login') return pageLogin();
-    if (r.name === 'register') return pageRegister();
-    if (r.name === 'reset') return pageReset();
-    if (r.name === 'appeal') return pageAppeal(r.arg);
-    if (r.name === 'points') return pagePoints();
-    if (r.name === 'forum') return pageForum(r);
-    if (r.name === 'friends') return pageFriends();
-    if (r.name === 'chat') return pageChat(r.arg);
-    if (r.name === 'security') return pageSecurity();
-    if (r.name === 'support') return pageSupport();
-    if (r.name === 'feedback') return pageFeedback();
-    if (r.name === 'me') return pageMe();
-    if (r.name === 'owner') return pageOwner(r);
+    if (r.name === 'home') return guardPage(pageHome());
+    if (r.name === 'login') return guardPage(pageLogin());
+    if (r.name === 'register') return guardPage(pageRegister());
+    if (r.name === 'reset') return guardPage(pageReset());
+    if (r.name === 'appeal') return guardPage(pageAppeal(r.arg));
+    if (r.name === 'points') return guardPage(pagePoints());
+    if (r.name === 'forum') return guardPage(pageForum(r));
+    if (r.name === 'friends') return guardPage(pageFriends());
+    if (r.name === 'chat') return guardPage(pageChat(r.arg));
+    if (r.name === 'security') return guardPage(pageSecurity());
+    if (r.name === 'support') return guardPage(pageSupport());
+    if (r.name === 'feedback') return guardPage(pageFeedback());
+    if (r.name === 'me') return guardPage(pageMe());
+    if (r.name === 'owner') return guardPage(pageOwner(r));
     view.innerHTML = '<div class="card"><h2>页面不存在</h2><p class="muted">您访问的页面不存在。</p></div>';
+  }
+  // 全站防卡死兜底：页面渲染中任何未捕获异常都落到明确错误态＋重试入口，
+  // 不许留下无限转圈的骨架屏/「正在加载…」（2026-10-24 全入口清扫立规）。
+  function guardPage(p) {
+    return Promise.resolve(p).catch(function (e) {
+      if (window.console && console.error) console.error(e);
+      view.innerHTML = '<div class="card"><h2>页面加载出错</h2><p class="muted">页面显示时发生错误，已停止加载。请重试；如多次失败，请通过意见反馈告知我们。</p><p><button class="primary" id="pageRetry" type="button">重新加载</button></p></div>';
+      var b = $('#pageRetry');
+      if (b) b.addEventListener('click', function () { render(); });
+    });
   }
   window.addEventListener('hashchange', render);
 
@@ -2473,6 +2483,7 @@
         '<div class="row-end"><button type="button" class="ghost" data-act="cancel">取消</button>' +
         '<button type="button" class="' + (opts.danger ? 'own-danger' : 'primary') + '" data-act="next">确认无误，继续</button></div></div></div>');
       document.body.appendChild(ov);
+      if (opts.onShow) opts.onShow(ov);
       function close(v) { ov.remove(); resolve(v); }
       ov.addEventListener('click', function (ev) { if (ev.target === ov) close(null); });
       ov.querySelector('[data-act="cancel"]').addEventListener('click', function () { close(null); });
@@ -2538,7 +2549,8 @@
     var users = (r.data && r.data.users) || [];
     if (!users.length) { box.innerHTML = '<p class="muted">没有符合条件的用户。</p>'; return; }
     box.innerHTML = '<div class="list">' + users.map(function (u) {
-      return '<a class="item" href="#/owner/user/' + u.id + '">' + avatarSlotHtml(u.id, u.avatarVersion, u.hasAvatar, u.nickname || u.username, 40) +
+      var avVer = u.avatarUrl ? (String(u.avatarUrl).split('v=')[1] || '') : '';
+      return '<a class="item" href="#/owner/user/' + u.id + '">' + avatarSlotHtml(u.id, avVer, !!u.avatarUrl, u.nickname || u.username, 40) +
         '<span class="grow"><strong>' + esc(u.nickname || u.username) + '</strong>' + banBadge(u) + '<br><span class="muted small">账户 ID：' + esc(u.username) + ' ｜ ' + esc(u.emailMasked) + ' ｜ 注册于 ' + esc(fmtTs(u.createdAt)) + '</span></span><span aria-hidden="true">›</span></a>';
     }).join('') + '</div>' +
       '<p class="row"><button class="ghost" id="ownPrev"' + ((pageNum || 0) === 0 ? ' disabled' : '') + '>上一页</button>' +
@@ -2565,11 +2577,11 @@
       ['账户 ID', esc(b.username) + '（内部编号 ' + b.id + '）'],
       ['昵称', esc(b.nickname || '（未设置）')],
       ['邮箱', esc(b.emailMasked) + ' <button class="ghost" id="ownViewEmail" type="button">查看完整邮箱</button>'],
-      ['账号状态', esc(b.status) + (b.passwordFrozen ? ' ｜ 密码已冻结' : '') + (b.deletion ? ' ｜ 已申请注销（生效时间 ' + esc(fmtTs(b.deletion.effectiveAt || 0)) + '）' : '')],
+      ['账号状态', esc(b.status) + ((b.passwordFrozen && b.passwordFrozen.frozen) ? ' ｜ 密码已冻结' : '') + ((b.deletion && b.deletion.requested) ? ' ｜ 已申请注销（生效时间 ' + esc(fmtTs(b.deletion.effectiveAt || 0)) + '）' : '')],
       ['密码', b.passwordSet.set ? '已设置' : '未设置（谷歌新账号待补设）'],
       ['谷歌登录', b.googleBound ? '已绑定' : '未绑定'],
       ['注册时间', esc(fmtTs(b.createdAt))],
-      ['最近活跃', b.lastActiveAt ? esc(fmtTs(b.lastActiveAt)) : '—'],
+      ['最近活跃', (b.lastActiveAt || b.lastLoginAt) ? esc(fmtTs(b.lastActiveAt || b.lastLoginAt)) : '—'],
     ]);
     fillAvatars(box);
     $('#ownViewEmail').addEventListener('click', async function () {
@@ -2630,12 +2642,21 @@
         title: '封禁用户', danger: true,
         body: '封禁后该用户将无法登录（警告除外），其现有登录状态会被退出。封禁原因将按既定口径向该用户展示。',
         fieldsHtml: '<label for="fLevel">封禁级别</label><select id="fLevel"><option value="warn">警告（仅记录）</option><option value="timed">限时封禁</option><option value="permanent">永久封禁</option></select>' +
-          '<label for="fDays">限时封禁天数（限时时填写）</label><input id="fDays" type="number" min="1" value="7">' +
+          '<div id="fDaysWrap" style="display:none;"><label for="fDays">限时封禁天数（必填）</label><input id="fDays" type="number" min="1" value="7"></div>' +
           '<label for="fReason">封禁原因（向用户展示）</label><input id="fReason" type="text" value="违反用户协议">' +
           '<label><input type="checkbox" id="fDev" style="width:auto;"> 同时封禁该用户名下设备</label>',
+        onShow: function (ov) {
+          var sel = ov.querySelector('#fLevel'), wrap = ov.querySelector('#fDaysWrap');
+          function sync() { wrap.style.display = sel.value === 'timed' ? '' : 'none'; }
+          sel.addEventListener('change', sync); sync();
+        },
         collect: function (ov) {
           var out = { level: ov.querySelector('#fLevel').value, reasonText: ov.querySelector('#fReason').value.trim() || '违反用户协议', alsoBanDevices: ov.querySelector('#fDev').checked };
-          if (out.level === 'timed') out.durationDays = Number(ov.querySelector('#fDays').value) || 7;
+          if (out.level === 'timed') {
+            var days = Number(ov.querySelector('#fDays').value);
+            if (!days || days < 1) { alert('限时封禁请填写封禁天数（至少 1 天）。'); return null; }
+            out.durationDays = days;
+          }
           return out;
         },
       });
@@ -2676,10 +2697,19 @@
       btn.addEventListener('click', function () {
         box.querySelectorAll('button').forEach(function (x) { x.classList.remove('active'); });
         btn.classList.add('active');
-        loadOwnerTab(uid, btn.getAttribute('data-tab'));
+        loadOwnerTabSafe(uid, btn.getAttribute('data-tab'));
       });
     });
-    loadOwnerTab(uid, 'points');
+    loadOwnerTabSafe(uid, 'points');
+  }
+  async function loadOwnerTabSafe(uid, tab) {
+    try { await loadOwnerTab(uid, tab); } catch (e) {
+      if (window.console && console.error) console.error(e);
+      var body = $('#ownTabBody'); if (!body) return;
+      body.innerHTML = '<p class="muted">本页签加载出错，请重试。</p><p><button class="ghost" id="ownTabRetry" type="button">重试</button></p>';
+      var b = $('#ownTabRetry');
+      if (b) b.addEventListener('click', function () { loadOwnerTabSafe(uid, tab); });
+    }
   }
   async function loadOwnerTab(uid, tab) {
     var body = $('#ownTabBody'); if (!body) return;
@@ -2689,9 +2719,9 @@
       var r = await api('/owner/users/' + uid + '/points'); if (!r.ok) return fail(r);
       var d = r.data;
       var orders = (d.orders || []).map(function (o) {
-        return '<tr><td>#' + o.id + '</td><td>' + esc(o.productName || '') + '</td><td>' + o.pricePoints + ' 分</td><td>' + esc(o.status) + '</td><td>' + esc(o.payoutAddressMasked || o.payoutEmailMasked || '—') + (o.payoutAddressMasked ? ' <button class="ghost" data-payout="' + o.id + '" type="button">查看完整发放信息</button>' : '') + '</td></tr>';
+        return '<tr><td>#' + o.id + '</td><td>' + esc(o.productName || '') + '</td><td>' + o.pricePoints + ' 分</td><td>' + esc(o.status) + '</td><td>' + esc(o.payoutAddressMasked || o.payoutEmailMasked || '—') + ((o.payoutAddressMasked || o.payoutEmailMasked) ? ' <button class="ghost" data-payout="' + o.id + '" type="button">查看完整发放信息</button>' : '') + '</td></tr>';
       }).join('');
-      body.innerHTML = kvTable([['可用积分', String(d.points.balance)], ['冻结积分', String(d.points.frozen)], ['累计获得', String(d.points.totalEarned)], ['累计消耗', String(d.points.totalSpent)], ['附件用量', (d.attachmentUsageBytes / 1048576).toFixed(2) + ' MB']]) +
+      body.innerHTML = kvTable([['可用积分', String(d.pointsBalance)], ['冻结积分', String(d.frozenPoints)], ['累计获得', String(d.totalEarned)], ['累计消耗', String(d.totalSpent)], ['附件用量', (((d.attachmentUsage && d.attachmentUsage.bytes) || 0) / 1048576).toFixed(2) + ' MB（' + ((d.attachmentUsage && d.attachmentUsage.files) || 0) + ' 个文件）']]) +
         '<h3>兑换订单</h3>' + (orders ? '<table class="kv"><tr><td>订单</td><td>商品</td><td>积分</td><td>状态</td><td>发放信息</td></tr>' + orders + '</table>' : '<p class="muted">暂无兑换订单。</p>') +
         '<p><button class="ghost" id="ownLedger" type="button">查看积分流水</button></p><div id="ownLedgerBox"></div>';
       body.querySelectorAll('[data-payout]').forEach(function (btn) {
@@ -2720,7 +2750,7 @@
       var conn = rc.ok && rc.data.online ? '当前在线（连接数 ' + rc.data.devices.length + '，流量汇总 ' + rc.data.devices.reduce(function (s, x) { return s + (x.trafficBytes || 0); }, 0) + ' 字节）' : '当前不在线';
       body.innerHTML = '<p>连接状态：<strong>' + esc(conn) + '</strong></p>' +
         (devs ? '<table class="kv"><tr><td>设备</td><td>平台</td><td>地区</td><td>最近活跃</td><td>信任</td></tr>' + devs + '</table>' : '<p class="muted">暂无设备记录。</p>') +
-        '<p class="muted small">通行密钥：' + (rd.data.passkeyStatus.hasPasskey ? '已创建 ' + rd.data.passkeyStatus.count + ' 个' : '未创建') + '。出于隐私保护，管理台不展示连接来源地址与访问目标。</p>';
+        '<p class="muted small">通行密钥：' + ((rd.data.passkeys && rd.data.passkeys.enrolled) ? '已创建 ' + rd.data.passkeys.count + ' 个' : '未创建') + '。出于隐私保护，管理台不展示连接来源地址与访问目标。</p>';
     } else if (tab === 'forum') {
       var rf = await api('/owner/users/' + uid + '/forum'); if (!rf.ok) return fail(rf);
       var f = rf.data;
@@ -2753,10 +2783,19 @@
       btn.addEventListener('click', function () {
         $('#ownQ').querySelectorAll('button').forEach(function (x) { x.classList.remove('active'); });
         btn.classList.add('active');
-        loadOwnerQueue(btn.getAttribute('data-q'));
+        loadOwnerQueueSafe(btn.getAttribute('data-q'));
       });
     });
-    loadOwnerQueue('forum');
+    loadOwnerQueueSafe('forum');
+  }
+  async function loadOwnerQueueSafe(kind) {
+    try { await loadOwnerQueue(kind); } catch (e) {
+      if (window.console && console.error) console.error(e);
+      var body = $('#ownQBody'); if (!body) return;
+      body.innerHTML = '<p class="muted">本队列加载出错，请重试。</p><p><button class="ghost" id="ownQRetry" type="button">重试</button></p>';
+      var b = $('#ownQRetry');
+      if (b) b.addEventListener('click', function () { loadOwnerQueueSafe(kind); });
+    }
   }
   function reviewButtons(html) { return '<span class="row" style="margin-top:6px;">' + html + '</span>'; }
   async function loadOwnerQueue(kind) {
@@ -2768,21 +2807,22 @@
         if (!f) return;
         Object.keys(extra).forEach(function (k) { f[k] = extra[k]; });
         var r = await ownerDo(path, f);
-        if (r) loadOwnerQueue(kind);
+        if (r) loadOwnerQueueSafe(kind);
       };
     }
     if (kind === 'forum') {
       var r = await api('/owner/reviews/forum-pending'); if (!r.ok) { body.innerHTML = '<p class="muted">加载失败。</p>'; return; }
       var d = r.data || {}; var html = '';
-      (d.posts || []).forEach(function (p) {
-        html += '<div class="item"><span class="grow"><strong>[待审帖子]</strong> ' + esc(p.title) + '<br><span class="muted small">' + esc(p.contentPreview || '') + '</span></span></div>' +
+      var pendPosts = (d.pending || []).filter(function (x) { return x.type === 'post'; });
+      var pendReplies = (d.pending || []).filter(function (x) { return x.type === 'reply'; });
+      pendPosts.forEach(function (p) {
+        html += '<div class="item"><span class="grow"><strong>[待审帖子]</strong> ' + esc(p.title || '') + '<br><span class="muted small">' + esc(String(p.content || '').slice(0, 120)) + '</span></span></div>' +
           reviewButtons('<button class="primary" data-a="' + p.id + '">通过</button><button class="ghost" data-r="' + p.id + '">驳回</button><button class="ghost" data-d="' + p.id + '">删除</button>');
-        setTimeout(function () {}, 0);
       });
-      (d.replies || []).forEach(function (p) { html += '<div class="item"><span class="grow"><strong>[待审回复]</strong><br><span class="muted small">' + esc(p.contentPreview || '') + '</span></span></div>' + reviewButtons('<button class="primary" data-ar="' + p.id + '">通过</button><button class="ghost" data-rr="' + p.id + '">驳回</button><button class="ghost" data-dr="' + p.id + '">删除</button>'); });
-      (d.camps || []).forEach(function (c) { html += '<div class="item"><span class="grow"><strong>[待审营地]</strong> ' + esc(c.name) + '<br><span class="muted small">' + esc(c.introPreview || '') + '</span></span></div>' + reviewButtons('<button class="primary" data-ac="' + c.id + '">通过</button><button class="ghost" data-rc="' + c.id + '">驳回</button>'); });
-      (d.campRenames || []).forEach(function (c) { html += '<div class="item"><span class="grow"><strong>[营地改名]</strong> ' + esc(c.name) + ' → ' + esc(c.pendingName) + '</span></div>' + reviewButtons('<button class="primary" data-an="' + c.id + '">通过</button><button class="ghost" data-rn="' + c.id + '">驳回</button>'); });
-      (d.campFlags || []).forEach(function (c) { html += '<div class="item"><span class="grow"><strong>[营地复核]</strong> ' + esc(c.name) + '</span></div>' + reviewButtons('<button class="primary" data-rp="' + c.id + '">复开营地</button>'); });
+      pendReplies.forEach(function (p) { html += '<div class="item"><span class="grow"><strong>[待审回复]</strong><br><span class="muted small">' + esc(String(p.content || '').slice(0, 120)) + '</span></span></div>' + reviewButtons('<button class="primary" data-ar="' + p.id + '">通过</button><button class="ghost" data-rr="' + p.id + '">驳回</button><button class="ghost" data-dr="' + p.id + '">删除</button>'); });
+      (d.camps || []).forEach(function (c) { html += '<div class="item"><span class="grow"><strong>[待审营地]</strong> ' + esc(c.name) + '<br><span class="muted small">' + esc(String(c.description || '').slice(0, 120)) + '</span></span></div>' + reviewButtons('<button class="primary" data-ac="' + c.id + '">通过</button><button class="ghost" data-rc="' + c.id + '">驳回</button>'); });
+      (d.campEdits || []).forEach(function (c) { html += '<div class="item"><span class="grow"><strong>[营地改名]</strong> ' + esc(c.current_name) + ' → ' + esc(c.pending_name) + (c.has_pending_avatar ? '<br><span class="muted small">含头像变更' + (c.pending_avatar_remove ? '（移除头像）' : '') + '</span>' : '') + '</span></div>' + reviewButtons('<button class="primary" data-an="' + c.camp_id + '">通过</button><button class="ghost" data-rn="' + c.camp_id + '">驳回</button>'); });
+      (d.campFlags || []).forEach(function (c) { html += '<div class="item"><span class="grow"><strong>[营地复核]</strong> ' + esc(c.camp_name || '') + '</span></div>' + reviewButtons('<button class="primary" data-rp="' + c.camp_id + '">复开营地</button>'); });
       body.innerHTML = html || '<p class="muted">暂无待审内容。</p>';
       body.querySelectorAll('[data-a]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/forum/post/' + b.getAttribute('data-a') + '/review', { decision: 'approve' }, '通过该帖子')); });
       body.querySelectorAll('[data-r]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/forum/post/' + b.getAttribute('data-r') + '/review', { decision: 'reject' }, '驳回该帖子', true)); });
@@ -2792,14 +2832,14 @@
       body.querySelectorAll('[data-dr]').forEach(function (b) { b.addEventListener('click', decide('/owner/forum/reply/' + b.getAttribute('data-dr') + '/delete', {}, '删除该回复', true)); });
       body.querySelectorAll('[data-ac]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/forum/camp/' + b.getAttribute('data-ac') + '/review', { decision: 'approve' }, '通过该营地')); });
       body.querySelectorAll('[data-rc]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/forum/camp/' + b.getAttribute('data-rc') + '/review', { decision: 'reject' }, '驳回该营地', true)); });
-      body.querySelectorAll('[data-an]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/forum/campRename/' + b.getAttribute('data-an') + '/review', { decision: 'approve' }, '通过该改名')); });
-      body.querySelectorAll('[data-rn]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/forum/campRename/' + b.getAttribute('data-rn') + '/review', { decision: 'reject' }, '驳回该改名', true)); });
+      body.querySelectorAll('[data-an]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/forum/camp_edit/' + b.getAttribute('data-an') + '/review', { decision: 'approve' }, '通过该改名')); });
+      body.querySelectorAll('[data-rn]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/forum/camp_edit/' + b.getAttribute('data-rn') + '/review', { decision: 'reject' }, '驳回该改名', true)); });
       body.querySelectorAll('[data-rp]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/camps/' + b.getAttribute('data-rp') + '/reopen', {}, '复开该营地')); });
     } else if (kind === 'appeals') {
       var ra = await api('/owner/reviews/appeals?status=pending'); if (!ra.ok) { body.innerHTML = '<p class="muted">加载失败。</p>'; return; }
       var list = (ra.data && ra.data.appeals) || [];
       body.innerHTML = list.length ? list.map(function (a) {
-        return '<div class="item"><span class="grow"><strong>封号申诉 #' + a.id + '</strong>（用户 ' + a.userId + '）<br><span class="muted small">' + esc(a.content || '') + '</span></span></div>' +
+        return '<div class="item"><span class="grow"><strong>封号申诉 #' + a.id + '</strong>（用户 ' + a.user_id + (a.user_username ? ' · ' + esc(a.user_username) : '') + '）<br><span class="muted small">' + esc(a.content || '') + '</span></span></div>' +
           reviewButtons('<button class="primary" data-ap="' + a.id + '">批准（解封）</button><button class="ghost" data-rj="' + a.id + '">驳回</button>');
       }).join('') : '<p class="muted">暂无待审申诉。</p>';
       body.querySelectorAll('[data-ap]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/appeals/' + b.getAttribute('data-ap') + '/review', { decision: 'approve' }, '批准该申诉')); });
@@ -2808,7 +2848,7 @@
       var rr3 = await api('/owner/reviews/recovery?status=pending'); if (!rr3.ok) { body.innerHTML = '<p class="muted">加载失败。</p>'; return; }
       var list3 = (rr3.data && rr3.data.appeals) || [];
       body.innerHTML = list3.length ? list3.map(function (a) {
-        return '<div class="item"><span class="grow"><strong>找回申诉 #' + a.id + '</strong>（账号 ' + esc(a.account || '') + '）<br><span class="muted small">旧密码命中 ' + (a.oldPasswordHits || 0) + ' 个 ｜ 机型 ' + esc(a.deviceModel || '—') + ' ｜ 地点 ' + esc(a.locationText || '—') + ' ｜ 好友验证 ' + (a.friendVerified ? '已通过' : '未完成') + '</span></span></div>' +
+        return '<div class="item"><span class="grow"><strong>找回申诉 #' + a.id + '</strong>（账号 ' + esc(a.account_ref || a.user_username || '') + '）<br><span class="muted small">旧密码命中 ' + (a.old_pw_matches || 0) + ' 个 ｜ 机型 ' + esc((a.device_models || []).join('、') || '—') + ' ｜ 地点 ' + esc((a.login_locations || []).join('、') || '—') + ' ｜ 好友验证 ' + (a.friend_verified ? '已通过' : '未完成') + '</span></span></div>' +
           reviewButtons('<button class="primary" data-ap3="' + a.id + '">批准（发重置凭证）</button><button class="ghost" data-rj3="' + a.id + '">驳回</button>');
       }).join('') : '<p class="muted">暂无待审申诉。</p>';
       body.querySelectorAll('[data-ap3]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/recovery/' + b.getAttribute('data-ap3') + '/decide', { decision: 'approve' }, '批准该找回申诉')); });
@@ -2835,7 +2875,7 @@
       var ro = await api('/owner/reviews/orders'); if (!ro.ok) { body.innerHTML = '<p class="muted">加载失败。</p>'; return; }
       var list5 = ((ro.data && ro.data.orders) || []).filter(function (o) { return o.status === 'pending_review' || o.status === 'pending_payout'; });
       body.innerHTML = list5.length ? list5.map(function (o) {
-        return '<div class="item"><span class="grow"><strong>兑换订单 #' + o.id + '</strong>（用户 ' + o.userId + '，' + o.pricePoints + ' 分，状态 ' + esc(o.status) + '）</span></div>' +
+        return '<div class="item"><span class="grow"><strong>兑换订单 #' + o.id + '</strong>（用户 ' + o.user_id + '，' + esc(o.product_name || '') + '，' + o.price_points + ' 分，状态 ' + esc(o.status) + '）</span></div>' +
           reviewButtons('<button class="primary" data-rv="' + o.id + '">审核通过</button><button class="ghost" data-rjo="' + o.id + '">审核驳回</button>');
       }).join('') : '<p class="muted">暂无待处理订单。</p>';
       body.querySelectorAll('[data-rv]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/orders/' + b.getAttribute('data-rv') + '/review', { decision: 'approve' }, '审核通过该订单')); });
