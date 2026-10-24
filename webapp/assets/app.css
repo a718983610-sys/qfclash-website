@@ -45,9 +45,9 @@ svg.ico { flex: 0 0 auto; vertical-align: -3px; }
 .site-home-btn { margin-left: auto; flex: 0 0 auto; border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 999px; padding: 6px 14px; font-size: 13.5px; text-decoration: none; white-space: nowrap; transition: border-color .15s, color .15s, box-shadow .15s; }
 .site-home-btn:hover { border-color: var(--brand); color: var(--brand); text-decoration: none; box-shadow: 0 3px 10px rgba(37, 99, 235, .12); }
 
-.drawer { position: fixed; top: var(--topbar-h); left: 0; bottom: 0; width: var(--drawer-w); max-width: 84vw; background: var(--card); border-right: 1px solid var(--line-soft); z-index: 30; transform: translateX(-105%); transition: transform .24s cubic-bezier(.32, .72, .28, 1); display: flex; flex-direction: column; box-shadow: 10px 0 30px rgba(20, 30, 60, .09); }
+.drawer { position: fixed; top: var(--topbar-h); left: 0; bottom: 0; width: var(--drawer-w); max-width: 84vw; background: var(--card); border-right: 1px solid var(--line-soft); z-index: 50; transform: translateX(-105%); transition: transform .24s cubic-bezier(.32, .72, .28, 1); display: flex; flex-direction: column; box-shadow: 10px 0 30px rgba(20, 30, 60, .09); }
 .drawer.open { transform: translateX(0); }
-.drawer-identity { padding: 18px 16px; border-bottom: 1px solid var(--line-soft); display: flex; align-items: center; gap: 12px; cursor: pointer; background: linear-gradient(180deg, #f4f8ff, #ffffff); }
+.drawer-identity { flex: 0 0 auto; padding: 18px 16px; border-bottom: 1px solid var(--line-soft); display: flex; align-items: center; gap: 12px; cursor: pointer; background: linear-gradient(180deg, #f4f8ff, #ffffff); }
 .drawer-identity:hover { background: linear-gradient(180deg, #eaf1fe, #f7faff); }
 .drawer-identity .avatar { width: 46px; height: 46px; border-radius: 50%; object-fit: cover; background: #e8edf5; flex: 0 0 auto; }
 .avatar-ph { width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(135deg, #dbe7fd, #eef3fe); color: var(--brand); display: inline-flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex: 0 0 auto; }
@@ -56,11 +56,11 @@ svg.ico { flex: 0 0 auto; vertical-align: -3px; }
 .drawer-identity .nick { font-weight: 600; font-size: 15.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .drawer-identity .uid { color: var(--faint); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .drawer-identity .login-entry { font-weight: 600; color: var(--brand); font-size: 16px; }
-.drawer-nav { display: flex; flex-direction: column; padding: 10px; gap: 3px; overflow-y: auto; }
+.drawer-nav { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding: 10px; gap: 3px; overflow-y: auto; overscroll-behavior: contain; }
 .drawer-nav a { padding: 10px 12px; border-radius: 10px; color: var(--ink); font-size: 15px; transition: background .15s; }
 .drawer-nav a:hover { background: #f0f3f9; text-decoration: none; }
 .drawer-nav a.active { background: var(--brand-soft); color: var(--brand); font-weight: 600; box-shadow: inset 3px 0 0 var(--brand); }
-.drawer-foot { margin-top: auto; padding: 12px 14px; border-top: 1px solid var(--line-soft); }
+.drawer-foot { flex: 0 0 auto; margin-top: auto; padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line-soft); background: var(--card); }
 .drawer-foot .site-link-btn { display: block; text-align: center; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); text-decoration: none; margin-bottom: 8px; font-size: 14px; }
 .drawer-foot .site-link-btn:hover { border-color: var(--brand); color: var(--brand); }
 .logout-btn { width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--danger); font-size: 14px; }
