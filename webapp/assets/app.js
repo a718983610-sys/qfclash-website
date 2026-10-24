@@ -41,12 +41,46 @@
   function saveSession(data, remember) {
     var store = remember ? localStorage : sessionStorage, other = remember ? sessionStorage : localStorage;
     KEYS.forEach(function (k) { other.removeItem(k); });
-    if (data.accessToken) store.setItem('qf_access_token', data.accessToken);
-    if (data.refreshToken) store.setItem('qf_refresh_token', data.refreshToken);
-    if (data.nickname) store.setItem('qf_nickname', data.nickname);
-    if (data.email) store.setItem('qf_email', data.email);
-    if (data.username) store.setItem('qf_username', data.username);
-    if (data.userId != null) { other.removeItem('qf_user_id'); store.setItem('qf_user_id', String(data.userId)); }
+    // 服务端登录类回包形状为 {user:{id,email,username,...}, accessToken,...}：
+    // 身份字段嵌在 user 里、顶层只有令牌。先摊平（顶层同名字段优先），否则
+    // 昵称/邮箱/账户 ID/用户 ID 全部存不进会话——横幅与抽屉只能落到兜底文案
+    // （2026-10-24 缺陷根因：头像靠令牌拉图正常、名字显示「用户」）。
+    var flat = Object.assign({}, (data && data.user) || {}, data || {});
+    if (flat.userId == null && flat.id != null) flat.userId = flat.id;
+    if (flat.accessToken) store.setItem('qf_access_token', flat.accessToken);
+    if (flat.refreshToken) store.setItem('qf_refresh_token', flat.refreshToken);
+    if (flat.nickname) store.setItem('qf_nickname', flat.nickname);
+    if (flat.email) store.setItem('qf_email', flat.email);
+    if (flat.username) store.setItem('qf_username', flat.username);
+    if (flat.userId != null) { other.removeItem('qf_user_id'); store.setItem('qf_user_id', String(flat.userId)); }
+  }
+  // 显示名统一口径（2026-10-24）：昵称优先；无昵称用账户名（账户 ID/对方账
+  // 户名，都是真标识）；都没有才用占位「未设置昵称」——不再用「用户」这种
+  // 假名字冒充昵称。服务端作者名走 effectiveNickname（昵称→历史昵称→邮箱
+  // 前缀）恒有值，前端兜底只在接口缺字段时才触发。
+  function nameOrFallback(name, username) {
+    if (name) return name;
+    if (username) return username;
+    return '未设置昵称';
+  }
+  function myDisplayName() {
+    var me = meBasic();
+    return nameOrFallback(me.nickname, me.username);
+  }
+  // 登录类回包不带 nickname（服务端契约如此，不动以免影响 App）：登录后与
+  // 启动时各补拉一次 GET /profile，用 effectiveNickname 回填会话存储。
+  // 返回 true 表示本次补上了此前缺失的昵称（调用方据此决定是否重渲染）。
+  var profileSyncDone = false;
+  async function syncMyProfile(force) {
+    if (!loggedIn() || (profileSyncDone && !force)) return false;
+    profileSyncDone = true;
+    var before = storeGet('qf_nickname') || '';
+    var r = await api('/profile');
+    if (!r.ok || !r.data) return false;
+    var p = r.data;
+    saveSession({ nickname: p.effectiveNickname || p.nickname || '', username: p.username || '', email: p.email || '', userId: p.userId }, !!localStorage.getItem('qf_access_token'));
+    renderIdentity();
+    return !before && !!(p.effectiveNickname || p.nickname);
   }
   function clearSession() { KEYS.concat(['qf_user_id']).forEach(function (k) { localStorage.removeItem(k); sessionStorage.removeItem(k); }); }
   function loggedIn() { return !!storeGet('qf_access_token'); }
@@ -239,7 +273,7 @@
       if (!r.ok) { out.innerHTML = '<p class="err" style="margin-top:12px;">' + esc(r.message) + '</p>'; return; }
       var users = (r.data && r.data.users) || [];
       out.innerHTML = '<h3>搜索结果</h3>' + (users.length ? users.map(function (u) {
-        return '<div class="pane-item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><span class="pname">' + esc(u.nickname || '用户') + '</span></span><button class="primary" data-ssadd="' + esc(u.userId) + '" type="button" style="padding:6px 13px;">添加好友</button></div>';
+        return '<div class="pane-item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><span class="pname">' + esc(nameOrFallback(u.nickname, u.username)) + '</span></span><button class="primary" data-ssadd="' + esc(u.userId) + '" type="button" style="padding:6px 13px;">添加好友</button></div>';
       }).join('') : '<p class="muted small">未找到对应用户。请确认账户 ID 或邮箱无误（仅支持精确搜索）。</p>');
       fillAvatars(out);
       out.querySelectorAll('[data-ssadd]').forEach(function (b) { b.addEventListener('click', async function () {
@@ -258,8 +292,8 @@
     var btn = $('#logoutBtn');
     if (loggedIn()) {
       var me = meBasic();
-      box.innerHTML = '<span id="drawerAvatar"><span class="avatar-ph">' + esc((me.nickname || 'Q').slice(0, 1)) + '</span></span>' +
-        '<span class="who"><span class="nick">' + esc(me.nickname || '用户') + '</span><br><span class="uid">' + esc(me.username ? '账户 ID：' + me.username : '') + '</span></span>';
+      box.innerHTML = '<span id="drawerAvatar"><span class="avatar-ph">' + esc(myDisplayName().slice(0, 1)) + '</span></span>' +
+        '<span class="who"><span class="nick">' + esc(myDisplayName()) + '</span><br><span class="uid">' + esc(me.username ? '账户 ID：' + me.username : '') + '</span></span>';
       showAvatar($('#drawerAvatar'), '/profile/avatar', myAvatarVer, 44);
       btn.hidden = false;
     } else {
@@ -323,7 +357,7 @@
       '<div class="hero-title">欢迎使用 QFClash 网页版</div>' +
       '<div class="hero-sub">与客户端共用同一账号，好友、聊天、论坛、营地、积分与客服三端同步；连接、节点与订阅功能请使用客户端。</div>' +
       (loggedIn()
-        ? '<div class="hero-user"><span id="homeAvatar"><span class="avatar-ph">' + esc((me.nickname || 'Q').slice(0, 1)) + '</span></span><span><span class="hnick">' + esc(me.nickname || '用户') + '</span><br><span class="huid">' + (me.username ? '账户 ID：' + esc(me.username) : '') + '</span></span></div>' +
+        ? '<div class="hero-user"><span id="homeAvatar"><span class="avatar-ph">' + esc(myDisplayName().slice(0, 1)) + '</span></span><span><span class="hnick">' + esc(myDisplayName()) + '</span><br><span class="huid">' + (me.username ? '账户 ID：' + esc(me.username) : '') + '</span></span></div>' +
           '<div class="hero-cta"><a class="btn-white" href="#/forum">进入论坛</a><a class="btn-ghost-w" href="#/friends">好友与会话</a></div>'
         : '<div class="hero-cta"><a class="btn-white" href="#/login">登录</a><a class="btn-ghost-w" href="#/register">注册</a><a class="btn-ghost-w" href="#/forum">先逛论坛</a></div>') +
       '</div></div>' +
@@ -416,8 +450,10 @@
     if (r.ok && r.data && r.data.accessToken) { finishLogin(r.data, remember); return; }
     if (err) err.textContent = authBlockHtml(r) ? '' : (r.message || '登录失败，请稍后重试。');
   }
-  function finishLogin(data, remember) {
-    saveSession(data, remember); renderIdentity(); location.hash = '#/home'; render();
+  async function finishLogin(data, remember) {
+    saveSession(data, remember); renderIdentity();
+    await syncMyProfile(true); // 回包无 nickname：补拉资料把生效昵称写进会话
+    location.hash = '#/home'; render();
   }
   // 谷歌登录：GIS 官方库渲染按钮，凭据回调 POST /auth/google 换令牌（与官网 auth.js 同一流程/client_id）
   function initGoogleButton() {
@@ -789,8 +825,8 @@
     return '<div class="hero"><div class="hero-in"><div class="hero-kicker">社区 · FORUM</div>' +
       '<div class="hero-title">论坛</div>' +
       '<div class="hero-sub">聊使用、提问题、说想法，也可以创建自己的主题营地。</div>' +
-      '<div class="hero-user"><span id="forumAvatar"><span class="avatar-ph">' + esc((me.nickname || 'Q').slice(0, 1)) + '</span></span>' +
-      '<span><span class="hnick">' + esc(me.nickname || '用户') + '</span><br><span class="huid">账户 ID：' + esc(me.username || '—') + '</span></span></div>' +
+      '<div class="hero-user"><span id="forumAvatar"><span class="avatar-ph">' + esc(myDisplayName().slice(0, 1)) + '</span></span>' +
+      '<span><span class="hnick">' + esc(myDisplayName()) + '</span><br><span class="huid">账户 ID：' + esc(me.username || '—') + '</span></span></div>' +
       '<div class="hero-cta"><a class="btn-ghost-w" href="#/me">个人资料</a></div></div></div>';
   }
   function forumTabsHtml(active) {
@@ -802,7 +838,7 @@
   function countsHtml(p) {
     return '<span class="muted small">点赞 ' + esc(p.likeCount || 0) + ' · 分享 ' + esc(p.shareCount || 0) + ' · 浏览 ' + esc(p.viewCount || 0) + ' · 回复 ' + esc(p.replyCount || 0) + '</span>';
   }
-  function authorName(p) { return (p.author && p.author.name) || '用户'; }
+  function authorName(p) { return nameOrFallback(p.author && p.author.name, p.author && p.author.username); }
   function authorId(p) { return (p.author && p.author.userId) || ''; }
   function postStatusTag(p) {
     if (!p.status || p.status === 'published') return '';
@@ -1389,7 +1425,7 @@
     if (!r.ok) { view.innerHTML = '<div class="card"><h2>个人主页</h2><p class="err">' + esc(r.message) + '</p></div>'; return; }
     var d = r.data || {}, u = d.user || {}, st = d.stats || {};
     view.innerHTML = '<div class="profile-head"><div class="ph-cover"></div><div class="ph-body"><div class="ph-row"><span class="ph-avatar" id="fuAvatar"><span class="avatar-ph">' + esc((u.name || 'Q').slice(0, 1)) + '</span></span>' +
-      '<span><span class="ph-name">' + esc(u.name || '用户') + '</span><br><span class="ph-sub">' + (u.joinedAt ? '加入于 ' + esc(fmtTs(u.joinedAt)) : '') + '</span></span></div>' +
+      '<span><span class="ph-name">' + esc(nameOrFallback(u.name, u.username)) + '</span><br><span class="ph-sub">' + (u.joinedAt ? '加入于 ' + esc(fmtTs(u.joinedAt)) : '') + '</span></span></div>' +
       '<div class="ph-stats"><span><span class="n">' + esc(st.posts || 0) + '</span><br><span class="l">发帖</span></span><span><span class="n">' + esc(st.comments || 0) + '</span><br><span class="l">评价</span></span></div></div></div>' +
       '<div class="card"><h2>发布的帖子</h2><div class="list">' + ((d.posts || []).length ? d.posts.map(postItemHtml).join('') : '<p class="muted">暂无帖子。</p>') + '</div></div>' +
       '<div class="card"><h2>发表的评价</h2><div class="list">' + ((d.comments || []).length ? d.comments.map(function (c) {
@@ -1423,7 +1459,7 @@
       '</p><p class="small" id="postActionSt" role="status"></p></div>' +
       '<div class="card"><h2>回复（' + esc(replies.length) + '）</h2><div>' +
       (replies.length ? replies.map(function (x) {
-        var xname = (x.author && x.author.name) || '用户';
+        var xname = nameOrFallback(x.author && x.author.name, x.author && x.author.username);
         var xid = (x.author && x.author.userId) || '';
         return '<div class="post-row">' + avatarSlotHtml(xid, '', true, xname, 36) +
           '<div class="post-main"><div class="post-author"><a href="#/forum/user/' + esc(xid) + '"><strong style="color:var(--ink);">' + esc(xname) + '</strong></a><span class="faint">' + esc(relTime(x.createdAt)) + '</span>' +
@@ -1515,7 +1551,7 @@
       if (!r.ok) { out.innerHTML = '<p class="err">' + esc(r.message) + '</p>'; return; }
       var users = (r.data && r.data.users) || [];
       out.innerHTML = users.length ? '<div>' + users.map(function (u) {
-        return '<div class="pane-item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><span class="pname">' + esc(u.nickname || '用户') + '</span></span><button class="primary" data-addfriend="' + esc(u.userId) + '" type="button" style="padding:6px 13px;">添加好友</button></div>';
+        return '<div class="pane-item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><span class="pname">' + esc(nameOrFallback(u.nickname, u.username)) + '</span></span><button class="primary" data-addfriend="' + esc(u.userId) + '" type="button" style="padding:6px 13px;">添加好友</button></div>';
       }).join('') + '</div>' : '<p class="muted small">未找到对应用户。请确认账户 ID 或邮箱无误（仅支持精确搜索）。</p>';
       fillAvatars(out);
       out.querySelectorAll('[data-addfriend]').forEach(function (b) { b.addEventListener('click', async function () {
@@ -1539,12 +1575,12 @@
       (!incoming.length && !outgoing.length ? '<p class="muted small">暂无待处理的好友申请。</p>' : '') +
       (incoming.length ? '<h3 style="margin-top:2px;">收到的申请</h3>' + incoming.map(function (x) {
         var u = x.user || {};
-        return '<div class="pane-item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><span class="pname">' + esc(u.nickname || '用户') + '</span></span>' +
+        return '<div class="pane-item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><span class="pname">' + esc(nameOrFallback(u.nickname, u.username)) + '</span></span>' +
           '<button class="primary" data-accept="' + esc(x.id) + '" style="padding:6px 13px;">同意</button><button class="ghost" data-reject="' + esc(x.id) + '" style="padding:6px 13px;">拒绝</button></div>';
       }).join('') : '') +
       (outgoing.length ? '<h3>我发出的申请</h3>' + outgoing.map(function (x) {
         var u = x.user || {};
-        return '<div class="pane-item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><span class="pname">' + esc(u.nickname || '用户') + '</span><br><span class="psub">等待对方处理</span></span></div>';
+        return '<div class="pane-item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><span class="pname">' + esc(nameOrFallback(u.nickname, u.username)) + '</span><br><span class="psub">等待对方处理</span></span></div>';
       }).join('') : '');
     fillAvatars(box);
     box.querySelectorAll('[data-accept]').forEach(function (b) { b.addEventListener('click', async function () { var rr = await api('/friends/request/' + encodeURIComponent(b.getAttribute('data-accept')) + '/accept', { method: 'POST', body: {} }); friendActionErr = rr.ok ? '' : (rr.message || '操作失败，请稍后重试。'); loadRequests(); loadFriends(); }); });
@@ -1560,7 +1596,7 @@
         return '<a class="pane-item" href="#/support"><span class="brand-mark" style="width:44px;height:44px;border-radius:50%;font-size:14px;">客</span><span class="grow"><span class="pname">' + esc(f.displayName || '智能客服') + '</span> <span class="tag blue">系统 · 置顶</span><br><span class="psub">自动回复系统，点击进入智能客服</span></span></a>';
       }
       var uid = f.userId;
-      return '<div class="pane-item">' + avatarSlotHtml(uid, f.avatarUpdatedAt, f.hasAvatar, f.nickname, 44) + '<span class="grow"><a href="#/chat/' + esc(uid) + '" style="color:var(--ink);"><span class="pname">' + esc(f.nickname || '用户') + '</span></a>' + (f.username ? '<br><span class="psub">账户 ID：' + esc(f.username) + '</span>' : '') + '</span>' +
+      return '<div class="pane-item">' + avatarSlotHtml(uid, f.avatarUpdatedAt, f.hasAvatar, f.nickname, 44) + '<span class="grow"><a href="#/chat/' + esc(uid) + '" style="color:var(--ink);"><span class="pname">' + esc(nameOrFallback(f.nickname, f.username)) + '</span></a>' + (f.username ? '<br><span class="psub">账户 ID：' + esc(f.username) + '</span>' : '') + '</span>' +
         '<a class="ghost" href="#/chat/' + esc(uid) + '" style="padding:6px 13px;">聊天</a><button class="mini-btn danger" data-del="' + esc(uid) + '">删除</button></div>';
     }).join('') + '</div>' : '<p class="muted small">暂无好友。可通过上方搜索添加。</p>');
     fillAvatars(box);
@@ -1577,7 +1613,7 @@
     var list = (r.data && r.data.conversations) || [];
     box.innerHTML = list.length ? '<div>' + list.map(function (c) {
       var u = c.user || {};
-      return '<a class="pane-item' + (chatActivePeer && String(u.userId) === String(chatActivePeer) ? ' on' : '') + '" href="#/chat/' + esc(u.userId) + '">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 44) + '<span class="grow"><span class="pname">' + esc(u.nickname || '用户') + '</span><br><span class="psub">最近消息 ' + esc(relTime(c.lastMessageAt)) + '</span></span>' + (c.unreadCount ? '<span class="badge">' + esc(c.unreadCount) + '</span>' : '') + '</a>';
+      return '<a class="pane-item' + (chatActivePeer && String(u.userId) === String(chatActivePeer) ? ' on' : '') + '" href="#/chat/' + esc(u.userId) + '">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 44) + '<span class="grow"><span class="pname">' + esc(nameOrFallback(u.nickname, u.username)) + '</span><br><span class="psub">最近消息 ' + esc(relTime(c.lastMessageAt)) + '</span></span>' + (c.unreadCount ? '<span class="badge">' + esc(c.unreadCount) + '</span>' : '') + '</a>';
     }).join('') + '</div>' : '<p class="muted small">暂无会话。可从好友列表进入聊天。</p>';
     fillAvatars(box);
   }
@@ -1630,7 +1666,7 @@
     api('/chat/conversations').then(function (r) {
       var list = (r.ok && r.data && r.data.conversations) || [];
       var hit = list.filter(function (c) { return c.user && String(c.user.userId) === String(peerId); })[0];
-      var nameEl = $('#chatPeerName'); if (nameEl && hit) nameEl.textContent = '与 ' + (hit.user.nickname || '好友') + ' 的聊天';
+      var nameEl = $('#chatPeerName'); if (nameEl && hit) nameEl.textContent = '与 ' + nameOrFallback(hit.user.nickname, hit.user.username) + ' 的聊天';
       if (hit && hit.user.hasAvatar) showAvatar($('#chatPeerAvatar'), '/profile/' + encodeURIComponent(peerId) + '/avatar', hit.user.avatarUpdatedAt || '', 40);
     });
     function renderReactions() {
@@ -2179,7 +2215,7 @@
     if (nick) saveSession({ nickname: nick, username: p.username || '', email: p.email || '', userId: p.userId }, !!localStorage.getItem('qf_access_token')), renderIdentity();
     var uid = p.userId != null ? p.userId : myUserId();
     view.innerHTML = '<div class="profile-head"><div class="ph-cover"></div><div class="ph-body"><div class="ph-row"><span class="ph-avatar" id="meAvatar"><span class="avatar-ph">' + esc((nick || 'Q').slice(0, 1)) + '</span></span>' +
-      '<span><span class="ph-name">' + esc(nick || '用户') + '</span><br><span class="ph-sub">账户 ID：' + esc(p.username || '—') + '</span></span></div>' +
+      '<span><span class="ph-name">' + esc(nick || '未设置昵称') + '</span><br><span class="ph-sub">账户 ID：' + esc(p.username || '—') + '</span></span></div>' +
       '<table class="kv" style="margin-top:14px;"><tr><td>邮箱</td><td>' + esc(p.email || meBasic().email || '—') + '</td></tr>' +
       '<tr><td>我的积分</td><td>' + (pts.ok ? esc(pts.data && pts.data.balance != null ? pts.data.balance : '—') + ' 分（<a href="#/points">查看明细</a>）' : '加载失败') + '</td></tr></table></div></div>' +
       '<div class="card"><h2>编辑资料</h2><form class="stack" id="nickForm"><label>昵称<input name="nickname" value="' + esc(nick) + '" maxlength="32" required></label>' +
@@ -2821,6 +2857,8 @@
   renderIdentity();
   probeOwner();
   render();
+  // 存量会话（修复前登录的）昵称未入库：启动补拉一次资料，补上后重渲染当前页
+  if (loggedIn()) syncMyProfile().then(function (filled) { if (filled) render(); });
   checkMaintenance();
   setInterval(checkMaintenance, 60000);
 })();
