@@ -80,6 +80,9 @@ svg.ico { flex: 0 0 auto; vertical-align: -3px; }
 .ok { color: var(--ok); }
 .warn { color: var(--warn); }
 .notice { background: var(--info-soft); border: 1px solid #ccd9f8; border-radius: 12px; padding: 12px 14px; font-size: 13.5px; line-height: 1.6; }
+.ban-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 1000; background: var(--danger-soft); color: var(--danger); border-bottom: 1px solid #f2c1c1; padding: 10px 16px; font-size: 14px; line-height: 1.5; text-align: center; }
+.ban-banner a { color: var(--danger); font-weight: 700; text-decoration: underline; }
+body.has-ban-banner { padding-top: 42px; }
 .notice.warnbox { background: var(--warn-soft); border-color: #eedcae; }
 .empty { color: var(--faint); text-align: center; padding: 26px 10px; font-size: 14px; }
 

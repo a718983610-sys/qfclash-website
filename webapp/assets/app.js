@@ -82,7 +82,7 @@
     renderIdentity();
     return !before && !!(p.effectiveNickname || p.nickname);
   }
-  function clearSession() { KEYS.concat(['qf_user_id']).forEach(function (k) { localStorage.removeItem(k); sessionStorage.removeItem(k); }); }
+  function clearSession() { KEYS.concat(['qf_user_id']).forEach(function (k) { localStorage.removeItem(k); sessionStorage.removeItem(k); }); hideBanBanner(); }
   function loggedIn() { return !!storeGet('qf_access_token'); }
   function myUserId() { var v = storeGet('qf_user_id'); return v ? Number(v) : null; }
   function meBasic() { return { nickname: storeGet('qf_nickname') || '', email: storeGet('qf_email') || '', username: storeGet('qf_username') || '' }; }
@@ -112,7 +112,9 @@
         opts._retried = true; return api(path, opts);
       }
       clearSession(); renderIdentity();
+      if (rr && rr.code === 'ACCOUNT_BANNED') showBanBanner(rr.data);
     }
+    if (data && data.code === 'ACCOUNT_BANNED' && opts.auth !== false) showBanBanner(data);
     return { ok: res.ok && !(data && data.ok === false), status: res.status, data: data, code: data && data.code, message: (data && (data.message || data.error)) || (res.ok ? '' : '请求失败（' + res.status + '），请稍后重试。') };
   }
   // 发码倒计时：与服务端 60 秒发码冷却一致。发送成功或被冷却拦下（429）后调用，
@@ -406,6 +408,48 @@
   // ---------- 登录 / 注册 / 找回 / 申诉 ----------
   var stepUp = { token: '' }, completion = { token: '', email: '' };
   function authDeviceBody() { return { deviceHash: deviceId(), deviceName: 'Website', platform: 'website' }; }
+  // 封禁申诉入口状态机（2026-10-24 用户定版）：未申诉→「去申诉 >>>>」；审核中→只显示状态；
+  // 已驳回且剩余次数 >0→状态＋「再次申请 >>>>」；次数用完→定版文案、无入口；已通过即解封，不再出入口。
+  // st = { loaded, appealStatus, remaining }（来自 POST /appeals/status 回包）；未查到状态时按未申诉出入口。
+  function appealEntryHtml(st) {
+    if (st && st.appealStatus === 'pending') return '<span>申诉状态：审核中</span>';
+    if (st && st.appealStatus === 'rejected') {
+      if (st.remaining != null && st.remaining <= 0) return '<span>申诉次数已用完，无法再次申诉。</span>';
+      return '<span>申诉状态：已驳回</span> <a href="#/appeal/ban">再次申请 &gt;&gt;&gt;&gt;</a>';
+    }
+    if (st && st.appealStatus === 'approved') return '';
+    if (st && st.loaded && !st.appealStatus && st.remaining != null && st.remaining <= 0) return '<span>申诉次数已用完，无法再次申诉。</span>';
+    return '<a href="#/appeal/ban">去申诉 &gt;&gt;&gt;&gt;</a>';
+  }
+  // 登录被拒面与横幅共用：拿刚提交的账密查一次本人申诉状态，把入口换成当前状态形态。
+  function refreshBanAppealEntry(creds) {
+    if (!creds || !creds.identifier || !creds.password) return;
+    api('/appeals/status', { method: 'POST', auth: false, body: { identifier: creds.identifier, password: creds.password } }).then(function (sr) {
+      if (!sr.ok || !sr.data) return;
+      var st = { loaded: true, appealStatus: sr.data.status || null, remaining: sr.data.remaining };
+      var a = document.getElementById('banAppealEntry'); if (a) a.innerHTML = appealEntryHtml(st);
+      var b = document.getElementById('banBannerEntry'); if (b) b.innerHTML = appealEntryHtml(st);
+    });
+  }
+  // 已登录态被封禁时，任意带令牌请求都会回 ACCOUNT_BANNED 载荷：统一置顶红字横幅呈现，
+  // 免得各页面只把封禁文案当普通报错红字显示、没有申诉入口。
+  function showBanBanner(data) {
+    var bar = document.getElementById('qfBanBanner');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'qfBanBanner'; bar.className = 'ban-banner'; bar.setAttribute('role', 'alert');
+      document.body.appendChild(bar);
+      document.body.classList.add('has-ban-banner');
+    }
+    var until = data && data.bannedUntil ? fmtTs(data.bannedUntil) : '';
+    var perm = data && (data.permanent === true || !data.bannedUntil);
+    bar.innerHTML = '<span>' + esc(perm ? '该用户已被永久封禁' : '该账户已被封禁，解除时间：' + until) + '</span> <span id="banBannerEntry">' + appealEntryHtml(null) + '</span>';
+  }
+  function hideBanBanner() {
+    var bar = document.getElementById('qfBanBanner');
+    if (bar) bar.remove();
+    if (document.body) document.body.classList.remove('has-ban-banner');
+  }
   // 冻结/封禁分流（照 App 弹窗口径）：冻结给「找回密码」「找回申诉」两条出路；
   // 封禁给「提交封禁申诉」出路（申诉页凭账号+密码核验身份，免登录可达）。
   function authBlockHtml(r) {
@@ -416,7 +460,7 @@
     if (r && r.code === 'ACCOUNT_BANNED') {
       var until = r.data && r.data.bannedUntil ? fmtTs(r.data.bannedUntil) : '';
       var perm = r.data && (r.data.permanent === true || !r.data.bannedUntil);
-      return '<div class="notice"><strong>' + (perm ? '该用户已被永久封禁' : '该账户已被封禁，解除时间：' + esc(until)) + '</strong>' +
+      return '<div class="notice"><strong>' + (perm ? '该用户已被永久封禁' : '该账户已被封禁，解除时间：' + esc(until)) + '</strong> <span id="banAppealEntry">' + appealEntryHtml(null) + '</span>' +
         (r.data && r.data.reason ? '<br>原因：' + esc(r.data.reason) : '') +
         '<br>如需申诉，请提交封禁申诉，审核结果可在申诉状态查询中查看。<br>' +
         '<span class="row" style="margin-top:8px;"><a class="primary" href="#/appeal/ban">提交封禁申诉</a><a class="ghost" href="#/appeal/status">查询申诉状态</a></span></div>';
@@ -446,13 +490,14 @@
       var fd = new FormData(ev.target);
       var body = Object.assign({ identifier: String(fd.get('identifier')).trim(), password: String(fd.get('password')) }, authDeviceBody());
       var r = await api('/auth/login', { method: 'POST', auth: false, body: body });
-      handleAuthResult(r, !!fd.get('remember'));
+      handleAuthResult(r, !!fd.get('remember'), { identifier: body.identifier, password: body.password });
     });
     initGoogleButton();
   }
-  function handleAuthResult(r, remember) {
+  function handleAuthResult(r, remember, creds) {
     var err = $('#loginErr'); var block = $('#loginBlock');
     if (block) block.innerHTML = authBlockHtml(r);
+    if (r && r.code === 'ACCOUNT_BANNED') refreshBanAppealEntry(creds);
     if (r.ok && r.data && (r.data.needsStepUp || r.data.stepUpRequired)) {
       stepUp.token = r.data.stepUpToken || ''; if (err) err.textContent = ''; showStepUp(remember); return;
     }
@@ -618,7 +663,7 @@
           '<tr><td>提交时间</td><td>' + esc(fmtTs(a.createdAt)) + '</td></tr>' +
           (a.reviewedAt ? '<tr><td>审核时间</td><td>' + esc(fmtTs(a.reviewedAt)) + '</td></tr>' : '') +
           (a.reviewNote ? '<tr><td>审核说明</td><td>' + esc(a.reviewNote) + '</td></tr>' : '') + '</table>' +
-          (r.data.quota && r.data.quota.remaining != null ? '<p class="muted small">本次封禁还可申诉 ' + esc(r.data.quota.remaining) + ' 次。</p>' : '')
+          (r.data.remaining != null ? '<p class="muted small">本次封禁还可申诉 ' + esc(r.data.remaining) + ' 次。</p>' : '')
           : '<p class="muted">暂未查询到申诉记录。</p>';
       });
       return;
