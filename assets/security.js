@@ -73,6 +73,14 @@
       passkey_title: "通行密钥", pk_name: "新通行密钥名称", pk_name_ph: "例如：我的手机",
       pk_create: "创建通行密钥", pk_delete: "删除", pk_empty: "尚未创建通行密钥。",
       pk_unsupported: "当前浏览器不支持通行密钥。",
+      pk_domain_note: "通行密钥将在正式域名上线后可用。",
+      pk_err_mismatch: "当前访问地址与通行密钥不匹配，无法使用通行密钥。请通过正式网址访问后再试。",
+      pk_err_timeout: "通行密钥操作超时，请重试。",
+      pk_err_incomplete: "通行密钥操作未完成（可能已取消或超时），请重试；也可以改用密码或邮箱验证码。",
+      pk_err_aborted: "通行密钥操作已取消。",
+      pk_err_exists: "此设备已创建过通行密钥，无需重复创建。",
+      pk_err_constraint: "当前设备不满足创建通行密钥的条件。",
+      pk_err_unsupported_op: "当前浏览器或设备不支持通行密钥。",
       delete_title: "注销账号",
       delete_warn: "注销申请提交后有 7 天冷静期，冷静期内登录即可撤销；冷静期届满后，服务器账号数据将被删除且不可恢复。注销后账号积分将清零，未使用的兑换码将作废。提交注销前须完成身份复核。",
       delete_confirm: "我已了解上述后果，确认申请注销账号。",
@@ -163,6 +171,14 @@
       passkey_title: "Passkeys", pk_name: "Name for the new passkey", pk_name_ph: "e.g. My phone",
       pk_create: "Create Passkey", pk_delete: "Delete", pk_empty: "No passkeys yet.",
       pk_unsupported: "This browser does not support passkeys.",
+      pk_domain_note: "Passkeys will become available after the official domain launches.",
+      pk_err_mismatch: "The current address does not match this passkey, so it cannot be used. Please visit through the official address and try again.",
+      pk_err_timeout: "The passkey operation timed out. Please try again.",
+      pk_err_incomplete: "The passkey operation was not completed (it may have been cancelled or timed out). Please try again, or use your password or an email code instead.",
+      pk_err_aborted: "The passkey operation was cancelled.",
+      pk_err_exists: "A passkey has already been created on this device.",
+      pk_err_constraint: "This device does not meet the requirements for creating a passkey.",
+      pk_err_unsupported_op: "This browser or device does not support passkeys.",
       delete_title: "Delete Account",
       delete_warn: "Deletion requests enter a 7-day cooling-off period, during which signing in cancels the request. After the period ends, your server-side account data will be deleted and cannot be recovered. Your points balance will be cleared and unused redemption codes will be voided. Identity re-verification is required before submitting.",
       delete_confirm: "I understand the consequences above and confirm the deletion request.",
@@ -261,10 +277,36 @@
   }
   function hasWebAuthn() { return !!(window.PublicKeyCredential && navigator.credentials); }
 
+  // 通行密钥域名闸：服务端 WebAuthn 的 RP ID 固定为正式域名 qfclash.eu.org，
+  // 临时域名（如 github.io）下浏览器不许创建/使用通行密钥。此前在临时域名
+  // 点「创建通行密钥」，浏览器英文原话（RP ID 不匹配）会被原样弹给用户。
+  // 现：非正式域名时入口先置灰并给出中文说明（init 处）；万一仍走到调用
+  // 层，doReauth / 创建流程先拦，waErrText 再把浏览器错误逐类翻成中文兜底。
+  function pkDomainOk() { return /(^|\.)qfclash\.eu\.org$/i.test(location.hostname || ""); }
+  function waErrText(e) {
+    var name = (e && e.name) || "", msg = (e && e.message) || "";
+    if (msg && /[一-鿿]/.test(msg)) return msg; // 服务端中文提示（自抛 Error）原样保留
+    if (name === "SecurityError" || /RP ID|not authorized|origin/i.test(msg)) {
+      return pkDomainOk() ? t("pk_err_mismatch") : t("pk_domain_note");
+    }
+    switch (name) {
+      case "NotAllowedError": return t("pk_err_incomplete");
+      case "AbortError": return t("pk_err_aborted");
+      case "InvalidStateError": return t("pk_err_exists");
+      case "ConstraintError": return t("pk_err_constraint");
+      case "NotSupportedError": return t("pk_err_unsupported_op");
+      case "TimeoutError": return t("pk_err_timeout");
+    }
+    if (/timed out|timeout/i.test(msg)) return t("pk_err_timeout");
+    return t("generic_fail");
+  }
+
   // 再认证：拿 reauthToken（用途见服务端 reauth 说明；delete_account 为注销复核用途）。
   var reauthTokens = { pwd: "", pk: "", del: "" };
   function doReauth(purpose, slot, stateEl) {
-    if (!hasWebAuthn()) { showAlert(slot === "del" ? "delAlert" : slot === "pk" ? "pkAlert" : "pwdAlert", t("pk_unsupported"), false); return Promise.resolve(""); }
+    var alertId = slot === "del" ? "delAlert" : slot === "pk" ? "pkAlert" : "pwdAlert";
+    if (!pkDomainOk()) { showAlert(alertId, t("pk_domain_note"), false); return Promise.resolve(""); }
+    if (!hasWebAuthn()) { showAlert(alertId, t("pk_unsupported"), false); return Promise.resolve(""); }
     return api("/passkeys/reauth/options", { method: "POST", auth: true, body: { purpose: purpose } }).then(function (r) {
       if (!r.ok) throw new Error(serverMsg(r.data));
       return navigator.credentials.get({ publicKey: prepRequest(r.data.options) });
@@ -277,7 +319,7 @@
       if (el) el.textContent = t("reauth_ok");
       return r.data.reauthToken;
     }).catch(function (e) {
-      showAlert(slot === "del" ? "delAlert" : slot === "pk" ? "pkAlert" : "pwdAlert", (e && e.message) || t("generic_fail"), false);
+      showAlert(alertId, waErrText(e), false);
       return "";
     });
   }
@@ -457,6 +499,15 @@
     var logged = !!(window.QFAuth && QFAuth.token());
     document.getElementById("needLogin").classList.toggle("hidden", logged);
     document.getElementById("secMain").classList.toggle("hidden", !logged);
+    // 非正式域名：通行密钥全部入口置灰，卡内给出中文说明（删除走密码，不受影响）。
+    if (!pkDomainOk()) {
+      ["pwdPasskey", "pkPasskey", "delPasskey", "pkCreate"].forEach(function (id) {
+        var b = document.getElementById(id);
+        if (b) b.disabled = true;
+      });
+      var pkNote = document.getElementById("pkDomainNote");
+      if (pkNote) { pkNote.textContent = t("pk_domain_note"); pkNote.classList.remove("hidden"); }
+    }
     if (logged) { loadMe(); loadUsername(); loadDevices(); loadPasskeys(); }
     loadRecoveryFriends();
 
@@ -524,6 +575,7 @@
     });
 
     document.getElementById("pkCreate").addEventListener("click", function () {
+      if (!pkDomainOk()) { showAlert("pkAlert", t("pk_domain_note"), false); return; }
       if (!hasWebAuthn()) { showAlert("pkAlert", t("pk_unsupported"), false); return; }
       var body = {};
       if (reauthTokens.pk) body.reauthToken = reauthTokens.pk;
@@ -537,7 +589,7 @@
       }).then(function (r) {
         showAlert("pkAlert", serverMsg(r.data), r.ok);
         if (r.ok) { reauthTokens.pk = ""; loadPasskeys(); }
-      }).catch(function (e) { showAlert("pkAlert", (e && e.message) || t("generic_fail"), false); });
+      }).catch(function (e) { showAlert("pkAlert", waErrText(e), false); });
     });
 
     document.getElementById("delSubmit").addEventListener("click", function () {

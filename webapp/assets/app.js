@@ -23,6 +23,39 @@
   function b64OfBytes(bytes) { var s = ''; for (var i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, Array.prototype.slice.call(bytes, i, i + 0x8000)); return btoa(s); }
   function bytesOfB64(b64) { var bin = atob(String(b64 || '')); var out = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; }
 
+  // ---------- 通行密钥域名闸与错误翻译 ----------
+  // 服务端 WebAuthn 的 RP ID 固定为正式域名 qfclash.eu.org，临时域名（如
+  // github.io）下浏览器根本不许创建/使用通行密钥。此前在临时域名点「创建
+  // 通行密钥」，前端会把浏览器英文原话（RP ID 不匹配）原样弹给用户。现：
+  // 非正式域名时入口先置灰并给中文说明（pageSecurity 渲染处）；万一仍走到
+  // 调用层，waErrText 把浏览器错误逐类翻成大白话中文，绝不原样上屏。
+  var PK_DOMAIN_NOTE = '通行密钥将在正式域名上线后可用。';
+  function pkDomainOk() { return /(^|\.)qfclash\.eu\.org$/i.test(location.hostname || ''); }
+  function waErrText(e, fb) {
+    var name = (e && e.name) || '', msg = (e && e.message) || '';
+    if (msg && /[一-鿿]/.test(msg)) return msg; // 服务端中文提示（自抛 Error）原样保留
+    if (name === 'SecurityError' || /RP ID|not authorized|origin/i.test(msg)) {
+      return pkDomainOk() ? '当前访问地址与通行密钥不匹配，无法使用通行密钥。请通过正式网址访问后再试。' : PK_DOMAIN_NOTE;
+    }
+    switch (name) {
+      case 'NotAllowedError': return '通行密钥操作未完成（可能已取消或超时），请重试；也可以改用密码或邮箱验证码。';
+      case 'AbortError': return '通行密钥操作已取消。';
+      case 'InvalidStateError': return '此设备已创建过通行密钥，无需重复创建。';
+      case 'ConstraintError': return '当前设备不满足创建通行密钥的条件。';
+      case 'NotSupportedError': return '当前浏览器或设备不支持通行密钥。';
+      case 'TimeoutError': return '通行密钥操作超时，请重试。';
+    }
+    if (/timed out|timeout/i.test(msg)) return '通行密钥操作超时，请重试。';
+    return fb || '通行密钥操作失败，请稍后重试。';
+  }
+  // 非 WebAuthn 的浏览器/底层库错误同样不许把英文原话上屏：已是中文的保留，
+  // 英文的一律换成调用方给的大白话兜底文案。
+  function uiErrText(e, fb) {
+    var msg = (e && e.message) || '';
+    if (msg && /[一-鿿]/.test(msg)) return msg;
+    return fb;
+  }
+
   // ---------- 设备标识（与官网 deviceId 同形，共用 qf_web_id） ----------
   function deviceId() {
     var id = localStorage.getItem('qf_web_id');
@@ -1377,7 +1410,7 @@
         campAvatarPayload = await processCampAvatarFile(avFile.files[0]);
         if (prev) prev.innerHTML = '<span class="muted small">新头像预览：</span><img alt="新头像预览" src="' + URL.createObjectURL(avFile.files[0]) + '">';
       } catch (e) {
-        err.textContent = (e && e.message) || '头像处理失败，请换一张图片。';
+        err.textContent = uiErrText(e, '头像处理失败，请换一张图片。');
         avFile.value = '';
       }
     });
@@ -1746,7 +1779,7 @@
             var bytes = await QFCrypto.openBlob(p.ref);
             var blob = new Blob([bytes], { type: p.ref.mime || 'application/octet-stream' });
             var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = p.ref.name || '附件'; a.click();
-          } catch (e) { status.className = 'small err'; status.textContent = e.message || '附件打开失败。'; }
+          } catch (e) { status.className = 'small err'; status.textContent = uiErrText(e, '附件打开失败，请稍后重试。'); }
         });
         div.appendChild(btn);
       } else if (p.kind === 'sticker') {
@@ -1800,7 +1833,7 @@
         pullHistory();
       } catch (e) {
         status.className = 'small err';
-        status.textContent = e && e.code === 'CRYPTO_NOT_READY' ? '聊天尚未解锁，消息未发送。' : ('发送失败：' + (e.message || e));
+        status.textContent = e && e.code === 'CRYPTO_NOT_READY' ? '聊天尚未解锁，消息未发送。' : ('发送失败：' + uiErrText(e, '请稍后重试。'));
       }
     }
     // 保险库解锁（登录密码）→ 身份恢复 → 历史拉取
@@ -1825,7 +1858,7 @@
           pullHistory();
           chatTimer = setInterval(pullHistory, 5000);
         } catch (e) {
-          st.className = 'small err'; st.textContent = e.message || '解锁失败，请重试。';
+          st.className = 'small err'; st.textContent = uiErrText(e, '解锁失败，请重试。');
         }
       });
     }
@@ -1843,7 +1876,7 @@
         var r = await api('/chat/send', { method: 'POST', body: { to: Number(peerId), ciphertext: enc.ciphertext, nonce: enc.nonce, msgId: enc.msgId, blobId: sealed.ref.blobId } });
         if (!r.ok) throw new Error(r.message || '附件发送失败。');
         status.textContent = ''; pullHistory();
-      } catch (e) { status.className = 'small err'; status.textContent = e.message || '附件发送失败。'; }
+      } catch (e) { status.className = 'small err'; status.textContent = uiErrText(e, '附件发送失败，请稍后重试。'); }
     });
     $('#chatSend').addEventListener('click', async function () {
       var ta = $('#chatInput'); var text = ta.value.trim(); if (!text) return;
@@ -1907,6 +1940,7 @@
   var secReauthTokens = { pwd: '', pk: '', del: '' };
   async function secDoReauth(purpose, slot, stateId, msgId) {
     if (!waHas()) { secSetMsg(msgId, '当前浏览器不支持通行密钥。', false); return ''; }
+    if (!pkDomainOk()) { secSetMsg(msgId, PK_DOMAIN_NOTE, false); return ''; }
     try {
       var r = await api('/passkeys/reauth/options', { method: 'POST', body: { purpose: purpose } });
       if (!r.ok) throw new Error(r.message || '操作失败，请稍后重试。');
@@ -1918,7 +1952,7 @@
       secSetMsg(msgId, '', true);
       return vr.data.reauthToken;
     } catch (e) {
-      secSetMsg(msgId, (e && e.message) || '通行密钥验证未完成。', false);
+      secSetMsg(msgId, waErrText(e, '通行密钥验证未完成，请重试。'), false);
       return '';
     }
   }
@@ -1942,6 +1976,7 @@
     var pks = pkR.ok ? ((pkR.data && (pkR.data.passkeys || pkR.data.credentials)) || []) : null;
     var deleting = d.status === 'deleting';
     secReauthTokens = { pwd: '', pk: '', del: '' };
+    var pkGate = pkDomainOk() ? '' : ' disabled'; // 非正式域名：通行密钥入口置灰（删除走密码验证，不受影响）
     view.innerHTML =
       '<div class="page-title">安全中心</div>' +
       '<div class="card"><h2>账号概览</h2><table class="kv">' +
@@ -1957,7 +1992,7 @@
       '<form class="stack" id="secPwdForm">' +
       '<label>当前密码<input type="password" id="secCurPwd" autocomplete="current-password" placeholder="使用当前密码验证时填写"></label>' +
       '<label>邮箱验证码<span class="row"><input id="secPwdCode" inputmode="numeric" class="grow" placeholder="使用邮箱验证码验证时填写"><button class="ghost" type="button" id="secPwdSendCode">发送验证码</button></span></label>' +
-      '<span class="row"><button class="ghost" type="button" id="secPwdPasskey">使用通行密钥验证</button><span class="small ok" id="secPwdReauthState"></span></span>' +
+      '<span class="row"><button class="ghost" type="button" id="secPwdPasskey"' + pkGate + '>使用通行密钥验证</button><span class="small ok" id="secPwdReauthState"></span></span>' +
       '<label>新密码（8 至 72 位）<input type="password" id="secNewPwd" autocomplete="new-password"></label>' +
       '<label>确认新密码<input type="password" id="secNewPwd2" autocomplete="new-password"></label>' +
       '<p class="small" id="secPwdMsg" role="status"></p>' +
@@ -1985,15 +2020,16 @@
       }).join('') + '</div>' : '<p class="muted">暂无设备记录。</p>')) + '</div><p class="small" id="secDevMsg" role="status"></p></div>' +
 
       '<div class="card"><h2>通行密钥</h2>' +
+      (pkDomainOk() ? '' : '<p class="notice small" style="margin-bottom:10px;">' + PK_DOMAIN_NOTE + '</p>') +
       (pks === null ? '<p class="err">' + esc(pkR.message || '通行密钥加载失败，请稍后重试。') + '</p>' : (pks.length ? '<div class="list">' + pks.map(function (pk) {
         return '<div class="item"><span class="grow"><strong>' + esc(pk.name || '通行密钥') + '</strong><br><span class="muted small">创建于 ' + esc(fmtTs(pk.createdAt)) + '</span></span><button class="mini-btn danger" data-pkdel="' + esc(pk.id) + '">删除</button></div>';
       }).join('') + '</div>' : '<p class="muted">尚未创建通行密钥。</p>')) +
       '<form class="stack" id="secPkForm" style="margin-top:14px;">' +
       '<label>验证密码<input type="password" id="secPkPwd" autocomplete="current-password" placeholder="创建或删除通行密钥时验证"></label>' +
-      '<span class="row"><button class="ghost" type="button" id="secPkPasskey">使用通行密钥验证</button><span class="small ok" id="secPkReauthState"></span></span>' +
+      '<span class="row"><button class="ghost" type="button" id="secPkPasskey"' + pkGate + '>使用通行密钥验证</button><span class="small ok" id="secPkReauthState"></span></span>' +
       '<label>新通行密钥名称<input type="text" id="secPkName" placeholder="例如：我的手机"></label>' +
       '<p class="small" id="secPkMsg" role="status"></p>' +
-      '<span><button class="primary" type="button" id="secPkCreate">创建通行密钥</button></span></form>' +
+      '<span><button class="primary" type="button" id="secPkCreate"' + pkGate + '>创建通行密钥</button></span></form>' +
       (waHas() ? '' : '<p class="warn small">当前浏览器不支持通行密钥，无法在此创建或使用通行密钥验证。</p>') + '</div>' +
 
       '<div class="card"><h2>注销账号</h2>' +
@@ -2001,7 +2037,7 @@
       '<p class="muted small">注销申请提交后有 7 天冷静期，冷静期内登录即可撤销；冷静期届满后，服务器账号数据将被删除且不可恢复。注销后账号积分将清零，未使用的兑换码将作废。提交注销前须完成身份复核。</p>' +
       '<form class="stack" id="secDelForm">' +
       '<label>账户密码<input type="password" id="secDelPwd" autocomplete="current-password" placeholder="使用密码验证时填写"></label>' +
-      '<span class="row"><button class="ghost" type="button" id="secDelPasskey">使用通行密钥验证</button><span class="small ok" id="secDelReauthState"></span></span>' +
+      '<span class="row"><button class="ghost" type="button" id="secDelPasskey"' + pkGate + '>使用通行密钥验证</button><span class="small ok" id="secDelReauthState"></span></span>' +
       '<label class="switch-row"><input type="checkbox" id="secDelConfirm"> 我已了解上述后果，确认申请注销账号。</label>' +
       '<p class="small" id="secDelMsg" role="status"></p>' +
       '<span><button class="own-danger" type="button" id="secDelSubmit">提交注销申请</button></span></form>') + '</div>' +
@@ -2099,6 +2135,7 @@
     $('#secPkPasskey').addEventListener('click', function () { secDoReauth('passkey_manage', 'pk', 'secPkReauthState', 'secPkMsg'); });
     $('#secPkCreate').addEventListener('click', async function () {
       if (!waHas()) { secSetMsg('secPkMsg', '当前浏览器不支持通行密钥。', false); return; }
+      if (!pkDomainOk()) { secSetMsg('secPkMsg', PK_DOMAIN_NOTE, false); return; }
       var vb = secVerifyBody('pk', $('#secPkPwd').value);
       if (!vb) { secSetMsg('secPkMsg', '请先完成身份验证：输入验证密码，或使用通行密钥验证。', false); return; }
       try {
@@ -2112,7 +2149,7 @@
         secReauthTokens.pk = '';
         secSetMsg('secPkMsg', vr.message || '通行密钥已创建。', true);
         setTimeout(pageSecurity, 800);
-      } catch (e) { secSetMsg('secPkMsg', (e && e.message) || '创建失败，请稍后重试。', false); }
+      } catch (e) { secSetMsg('secPkMsg', waErrText(e, '创建失败，请稍后重试。'), false); }
     });
     view.querySelectorAll('[data-pkdel]').forEach(function (b) { b.addEventListener('click', async function () {
       var vb = secVerifyBody('pk', $('#secPkPwd').value);
