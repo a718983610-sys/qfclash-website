@@ -154,6 +154,21 @@
       showAvatar(slot, '/profile/' + encodeURIComponent(slot.getAttribute('data-avatar-uid')) + '/avatar', slot.getAttribute('data-avatar-ver') || '', Number(slot.getAttribute('data-avatar-size')) || 40);
     });
   }
+  // 相对时间（会话/列表用）：刚刚/分钟前/小时前/日期
+  function relTime(sec) {
+    if (sec == null || sec === '') return '';
+    var n = Number(sec); if (!isFinite(n)) return '';
+    var ms = n < 1e12 ? n * 1000 : n;
+    var diff = Date.now() - ms;
+    if (diff < 60 * 1000) return '刚刚';
+    if (diff < 3600 * 1000) return Math.floor(diff / 60000) + ' 分钟前';
+    if (diff < 86400 * 1000) return Math.floor(diff / 3600000) + ' 小时前';
+    if (diff < 7 * 86400 * 1000) return Math.floor(diff / 86400000) + ' 天前';
+    return new Date(ms).toLocaleDateString('zh-CN');
+  }
+  // 是否站长（以 /owner/me 探测结果为准，probeOwner 维护；删除等敏感入口仅站长可见，
+  // 服务端对全部 owner 接口另有角色校验，此处显隐只决定呈现）
+  function isSiteOwner() { return ownerState === true; }
 
   // ---------- 维护状态（L-02）：与 App 同一清单；maintenance=true 显示维护页，恢复自动可用 ----------
   var maintenanceOn = false;
@@ -219,6 +234,7 @@
   }
   async function render() {
     var r = route(); markNav(r.name === 'chat' ? 'friends' : r.name);
+    if (r.name !== 'chat' && typeof chatTimer !== 'undefined' && chatTimer) { clearInterval(chatTimer); chatTimer = null; }
     probeOwner();
     window.scrollTo(0, 0);
     if (maintenanceOn) {
@@ -236,6 +252,7 @@
     if (r.name === 'chat') return pageChat(r.arg);
     if (r.name === 'security') return pageSecurity();
     if (r.name === 'support') return pageSupport();
+    if (r.name === 'feedback') return pageFeedback();
     if (r.name === 'me') return pageMe();
     if (r.name === 'owner') return pageOwner(r);
     view.innerHTML = '<div class="card"><h2>页面不存在</h2><p class="muted">您访问的页面不存在。</p></div>';
@@ -246,17 +263,18 @@
   function pageHome() {
     var me = meBasic();
     view.innerHTML =
-      '<div class="card"><h2>欢迎使用 QFClash 网页版</h2>' +
-      '<p>网页版与客户端共用同一账号，好友、聊天、论坛、积分与智能客服保持同步。连接、节点与订阅功能请使用客户端。</p>' +
-      (loggedIn() ? '<p>当前登录：<strong>' + esc(me.nickname || '用户') + '</strong>' + (me.username ? '（账户 ID：' + esc(me.username) + '）' : '') + '</p>'
-                  : '<p><a class="primary" href="#/login">登录</a> <a class="ghost" href="#/register">注册</a> <a class="ghost" href="#/forum">先逛论坛</a></p>') + '</div>' +
+      '<div class="card"><div class="row"><span class="brand-mark" style="width:44px;height:44px;border-radius:12px;font-size:17px;">QF</span>' +
+      '<span class="grow"><strong style="font-size:19px;">欢迎使用 QFClash 网页版</strong><br><span class="muted small">与客户端共用同一账号，好友、聊天、论坛、营地、积分与客服三端同步；连接、节点与订阅功能请使用客户端。</span></span></div>' +
+      (loggedIn() ? '<p style="margin:14px 0 0;">当前登录：<strong>' + esc(me.nickname || '用户') + '</strong>' + (me.username ? '（账户 ID：' + esc(me.username) + '）' : '') + '</p>'
+                  : '<p class="row wrap" style="margin:16px 0 0;"><a class="primary" href="#/login">登录</a><a class="ghost" href="#/register">注册</a><a class="ghost" href="#/forum">先逛论坛</a></p>') + '</div>' +
       '<div class="card"><h2>功能导航</h2><div class="list">' +
-      [['#/points', '积分', '查看积分余额、进度与明细；积分获取以客户端在线时长为准。'],
-       ['#/forum', '论坛', '综合讨论、使用求助、建议与反馈与公告，并可加入主题社区「营地」。'],
-       ['#/friends', '好友', '管理好友与申请，进入聊天。'],
+      [['#/points', '积分', '查看积分余额、进度与明细，在网页完成兑换；积分获取以客户端在线时长为准。'],
+       ['#/forum', '论坛', '综合讨论、使用求助、建议与反馈与公告，并可创建、加入主题社区「营地」。'],
+       ['#/friends', '好友与会话', '管理好友与申请，进行端对端加密聊天。'],
        ['#/support', '智能客服', '自动回复系统，全天候解答使用问题，可转人工。'],
-       ['#/security', '安全中心', '登录设备、通行密钥与账号安全设置。']]
-        .map(function (x) { return '<a class="item" href="' + x[0] + '"><span class="grow"><strong>' + x[1] + '</strong><br><span class="muted small">' + x[2] + '</span></span><span aria-hidden="true">›</span></a>'; }).join('') +
+       ['#/feedback', '意见反馈', '问题与建议直达维护者，与客户端意见反馈同一通道。'],
+       ['#/security', '安全中心', '修改密码、换绑邮箱、登录设备、通行密钥与注销账号。']]
+        .map(function (x) { return '<a class="item" href="' + x[0] + '"><span class="grow"><strong>' + x[1] + '</strong><br><span class="muted small">' + x[2] + '</span></span><span aria-hidden="true" class="faint">›</span></a>'; }).join('') +
       '</div></div>';
   }
 
@@ -646,8 +664,8 @@
   }
   function forumTabsHtml(active) {
     var tabs = [['home', '首页'], ['mine', '我的帖子'], ['reviews', '我的评价'], ['stats', '数据分析']];
-    return '<div class="row wrap" role="tablist" style="margin-bottom:12px;">' + tabs.map(function (t) {
-      return '<button type="button" class="chip" data-ftab="' + t[0] + '" style="' + (active === t[0] ? 'background:#eef3fe;color:var(--brand);border-color:var(--brand);font-weight:600;' : '') + '">' + t[1] + '</button>';
+    return '<div class="ftabs" role="tablist">' + tabs.map(function (t) {
+      return '<button type="button" data-ftab="' + t[0] + '"' + (active === t[0] ? ' class="on"' : '') + '>' + t[1] + '</button>';
     }).join('') + '</div>';
   }
   function countsHtml(p) {
@@ -655,10 +673,20 @@
   }
   function authorName(p) { return (p.author && p.author.name) || '用户'; }
   function authorId(p) { return (p.author && p.author.userId) || ''; }
+  function postStatusTag(p) {
+    if (!p.status || p.status === 'published') return '';
+    var label = p.status === 'pending' ? '审核中' : p.status === 'rejected' ? '未通过' : p.status === 'deleted' ? '已删除' : p.status;
+    return ' <span class="tag ' + (p.status === 'pending' ? 'blue' : 'red') + '">' + esc(label) + '</span>';
+  }
   function postItemHtml(p) {
-    return '<div class="item"><span class="grow"><a href="#/forum/post/' + esc(p.id) + '"><strong>' + esc(p.title || '(无标题)') + '</strong></a>' +
-      (p.status && p.status !== 'published' ? ' <span class="chip">' + esc(p.status === 'pending' ? '审核中' : p.status) + '</span>' : '') + '<br>' +
-      '<span class="muted small">作者：<a href="#/forum/user/' + esc(authorId(p)) + '">' + esc(authorName(p)) + '</a> · ' + esc(fmtTs(p.createdAt)) + '</span><br>' + countsHtml(p) + '</span></div>';
+    var excerpt = String(p.content || '').replace(/\s+/g, ' ').slice(0, 110);
+    var av = authorId(p) ? avatarSlotHtml(authorId(p), '', true, authorName(p), 40) : '<span class="avatar-ph" style="width:40px;height:40px;">' + esc(authorName(p).slice(0, 1)) + '</span>';
+    return '<div class="post-row">' + av +
+      '<div class="post-main"><a class="post-title" href="#/forum/post/' + esc(p.id) + '">' + esc(p.title || '(无标题)') + '</a>' + postStatusTag(p) +
+      (excerpt ? '<div class="post-excerpt">' + esc(excerpt) + '</div>' : '') +
+      '<div class="post-stats"><span><a href="#/forum/user/' + esc(authorId(p)) + '">' + esc(authorName(p)) + '</a></span><span>' + esc(relTime(p.createdAt)) + '</span>' +
+      '<span>赞 ' + esc(p.likeCount || 0) + '</span><span>回复 ' + esc(p.replyCount || 0) + '</span><span>浏览 ' + esc(p.viewCount || 0) + '</span></div>' +
+      '</div></div>';
   }
   async function pageForum(r) {
     if (r.arg === 'user' && r.sub) return forumUserPage(r.sub);
@@ -684,6 +712,7 @@
           return '<div class="item"><span class="grow"><a href="#/forum/post/' + esc(c.postId) + '"><strong>' + esc(c.postTitle || '帖子') + '</strong></a>' + (c.status && c.status !== 'published' ? ' <span class="chip">' + esc(c.status === 'pending' ? '审核中' : c.status) + '</span>' : '') + '<br><span class="muted">' + esc(c.content) + '</span><br><span class="muted small">' + esc(fmtTs(c.createdAt)) + '</span></span></div>';
         }).join('') : '<p class="muted">暂无评价。</p>') + '</div></div>';
       }
+      fillAvatars(body);
       return;
     }
     if (forumState.tab === 'stats') {
@@ -691,13 +720,14 @@
       var an = await api('/forum/me/analytics');
       if (!an.ok) { body.innerHTML = '<div class="card"><p class="err">' + esc(an.message) + '</p></div>'; return; }
       var ad = an.data || {}, ms = ad.myStats || {};
-      body.innerHTML = '<div class="card"><h2>数据分析</h2><div class="row wrap">' +
-        [['发帖数', ms.posts || 0], ['评价数', ms.comments || 0], ['获赞数', ms.likesReceived || 0], ['总浏览', ms.viewsReceived || 0]].map(function (s) { return '<span class="card" style="margin:0;min-width:130px;"><span class="muted small">' + s[0] + '</span><br><strong style="font-size:22px;">' + esc(s[1]) + '</strong></span>'; }).join('') +
+      body.innerHTML = '<div class="card"><h2>数据分析</h2><div class="stat-grid">' +
+        [['发帖数', ms.posts || 0], ['评价数', ms.comments || 0], ['获赞数', ms.likesReceived || 0], ['总浏览', ms.viewsReceived || 0]].map(function (s) { return '<div class="stat-cell"><div class="lbl">' + s[0] + '</div><div class="num">' + esc(s[1]) + '</div></div>'; }).join('') +
         '</div></div>' +
         '<div class="card"><h2>我常关注的主题</h2>' + ((ad.topTopics || []).length ? '<div class="list">' + ad.topTopics.map(function (t) { return '<div class="item"><span class="grow"><strong>' + esc(t.name) + '</strong><br><span class="muted small">' + (t.type === 'camp' ? '营地' : '板块') + ' · 浏览 ' + esc(t.views) + ' · 评价 ' + esc(t.comments) + '</span></span></div>'; }).join('') + '</div>' : '<p class="muted">暂无足够数据。</p>') + '</div>' +
         '<div class="card"><h2>我常看的帖子</h2><div class="list">' + ((ad.frequentPosts || []).length ? ad.frequentPosts.map(postItemHtml).join('') : '<p class="muted">暂无记录。</p>') + '</div></div>' +
         '<div class="card"><h2>为你推荐</h2><div class="list">' + ((ad.recommendedPosts || []).length ? ad.recommendedPosts.map(postItemHtml).join('') : '<p class="muted">暂无推荐。</p>') + '</div></div>' +
         '<div class="card"><h2>推荐营地</h2><div class="list">' + ((ad.recommendedCamps || []).length ? ad.recommendedCamps.map(function (c) { return '<div class="item"><span class="grow"><a href="#/forum/camp/' + esc(c.id) + '"><strong>' + esc(c.name) + '</strong></a><br><span class="muted small">' + esc(c.description || '') + (c.joined ? ' · 已加入' : '') + '</span></span></div>'; }).join('') : '<p class="muted">暂无推荐。</p>') + '</div></div>';
+      fillAvatars(body);
       return;
     }
     // 首页：板块 + 帖子列表（真接口） + 营地 + 外站精选
@@ -709,19 +739,30 @@
     var postsR = await api(postsUrl, { auth: loggedIn() });
     var posts = postsR.ok ? ((postsR.data && postsR.data.posts) || []) : null;
     body.innerHTML =
-      '<div class="card"><h2>论坛</h2><div class="chips" style="margin:0 0 10px;">' +
-      '<button type="button" class="chip" data-board="" style="' + (!forumState.board ? 'background:#eef3fe;color:var(--brand);' : '') + '">全部板块</button>' +
-      boards.map(function (b) { return '<button type="button" class="chip" data-board="' + esc(b.key || b.id) + '" style="' + (forumState.board === (b.key || b.id) ? 'background:#eef3fe;color:var(--brand);' : '') + '">' + esc(b.name || b.title || b.key) + '</button>'; }).join('') + '</div>' +
+      '<div class="card"><div class="row"><h2 class="grow" style="margin:0;">帖子</h2>' +
+      (loggedIn() ? '<button class="primary" id="newPostBtn" type="button">发布帖子</button>' : '<a class="primary" href="#/login">登录后发帖</a>') + '</div>' +
+      '<div class="chips" style="margin:12px 0 4px;">' +
+      '<button type="button" class="chip' + (!forumState.board ? ' on' : '') + '" data-board="">全部板块</button>' +
+      boards.map(function (b) { return '<button type="button" class="chip' + (forumState.board === (b.key || b.id) ? ' on' : '') + '" data-board="' + esc(b.key || b.id) + '">' + esc(b.name || b.title || b.key) + '</button>'; }).join('') + '</div>' +
       (boardsR.ok ? '' : '<p class="err small">' + esc(boardsR.message || '板块加载失败，请稍后重试。') + '</p>') +
       (forumState.campId ? '<p class="muted small">当前按营地筛选帖子。<button type="button" class="chip" id="clearCampFilter">清除营地筛选</button></p>' : '') +
-      '<div class="list">' + (posts === null ? '<p class="err">' + esc(postsR.message) + '</p>' : (posts.length ? posts.map(postItemHtml).join('') : '<p class="muted">暂无帖子。</p>')) + '</div>' +
-      (loggedIn() ? '<p style="margin-top:10px;"><button class="primary" id="newPostBtn" type="button">发布帖子</button></p><div id="composeBox"></div>' : '<p class="muted small">登录后可发布帖子。</p>') + '</div>' +
-      '<div class="card"><h2>主题社区 · 营地</h2><p class="muted">围绕具体主题的讨论社区。加入营地后，可在营地内发帖讨论。</p><div class="list">' +
-      (camps.length ? camps.map(function (c) {
-        return '<div class="item"><span class="grow"><a href="#/forum/camp/' + esc(c.id) + '"><strong>' + esc(c.name) + '</strong></a><br><span class="muted small">' + esc(c.description || '') + '<br>成员 ' + esc(c.memberCount || 0) + ' · 帖子 ' + esc(c.postCount || 0) + (c.creator && c.creator.name ? ' · 创建者 ' + esc(c.creator.name) : '') + '</span></span>' +
-          (loggedIn() ? '<button class="ghost" data-joincamp="' + esc(c.id) + '" data-joined="' + (c.joined ? '1' : '') + '">' + (c.joined ? '已加入' : '加入营地') + '</button>' : '') + '</div>';
-      }).join('') : (campsR.ok ? '<p class="muted">暂无营地。</p>' : '<p class="err">' + esc(campsR.message || '营地加载失败，请稍后重试。') + '</p>')) + '</div></div>' +
-      '<div class="card"><h2>外站精选</h2><p class="muted small">来自外部平台的精选内容摘要，版权归原作者所有；点击可查看原文。</p><div id="extHighlights"><p class="muted">正在加载…</p></div></div>';
+      '<div>' + (posts === null ? '<p class="err">' + esc(postsR.message) + '</p>' : (posts.length ? posts.map(postItemHtml).join('') : '<p class="empty">暂无帖子，来发第一帖吧。</p>')) + '</div>' +
+      '<div id="composeBox"></div></div>' +
+      '<div class="card"><div class="row"><span class="grow"><h2 style="margin:0;">主题社区 · 营地</h2><span class="muted small">围绕具体主题的讨论社区，加入后可在营地内发帖。</span></span>' +
+      (loggedIn() ? '<button class="ghost" id="createCampBtn" type="button">创建营地</button>' : '') + '</div>' +
+      '<div id="campFormBox"></div>' +
+      (camps.length ? '<div class="camp-grid" style="margin-top:14px;">' + camps.map(function (c) {
+        return '<div class="camp-card"><a class="camp-name" href="#/forum/camp/' + esc(c.id) + '">' + esc(c.name) + '</a>' +
+          '<span class="camp-desc">' + esc(c.description || '暂无简介') + '</span>' +
+          '<span class="camp-meta">成员 ' + esc(c.memberCount || 0) + ' · 帖子 ' + esc(c.postCount || 0) + (c.creator && c.creator.displayName ? ' · ' + esc(c.creator.displayName) + ' 创建' : '') + '</span>' +
+          (loggedIn() ? '<span><button class="ghost" data-joincamp="' + esc(c.id) + '" data-joined="' + (c.joined ? '1' : '') + '" style="padding:6px 14px;">' + (c.joined ? '已加入' : '加入营地') + '</button></span>' : '') + '</div>';
+      }).join('') + '</div>' : (campsR.ok ? '<p class="empty">暂无营地。</p>' : '<p class="err">' + esc(campsR.message || '营地加载失败，请稍后重试。') + '</p>')) +
+      (loggedIn() ? '<h3>我创建的营地</h3><div id="myCampsBox"><p class="muted small">正在加载…</p></div>' : '') + '</div>' +
+      '<div class="card"><h2>外站精选</h2><p class="muted small">来自外部平台的精选内容，版权归原作者所有；点击可查看原文。</p><div id="extHighlights"><p class="muted">正在加载…</p></div></div>';
+    fillAvatars(body);
+    loadMyCamps();
+    var ccb = $('#createCampBtn');
+    if (ccb) ccb.addEventListener('click', function () { showCampForm(null); });
     body.querySelectorAll('[data-board]').forEach(function (b) { b.addEventListener('click', function () { forumState.board = b.getAttribute('data-board'); pageForum(route()); }); });
     var ccf = $('#clearCampFilter'); if (ccf) ccf.addEventListener('click', function () { forumState.campId = ''; pageForum(route()); });
     body.querySelectorAll('[data-joincamp]').forEach(function (b) { b.addEventListener('click', async function () {
@@ -756,23 +797,105 @@
     box.innerHTML = items.map(function (x) {
       var src = x.platform || x.source || '外部平台';
       var url = x.url || x.originalUrl || '#';
-      return '<div class="item"><span class="grow"><span class="chip" style="margin-bottom:4px;">' + esc(src) + '</span><br>' +
-        '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer"><strong>' + esc(x.title || '(无标题)') + '</strong></a><br>' +
-        '<span class="muted">' + esc(x.summary || x.excerpt || '') + '</span><br>' +
-        '<span class="muted small">来源：' + esc(src) + (x.author_name || x.authorName || x.author ? ' · 作者 ' + esc(x.author_name || x.authorName || x.author) : '') + (x.released_at || x.publishedAt ? ' · ' + esc(fmtTs(x.released_at || x.publishedAt)) : '') + ' · <a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">查看原文</a></span></span></div>';
+      return '<div class="post-row"><div class="post-main"><span class="tag blue">' + esc(src) + '</span> ' +
+        '<a class="post-title" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + esc(x.title || '(无标题)') + '</a>' +
+        (x.summary || x.excerpt ? '<div class="post-excerpt">' + esc(x.summary || x.excerpt) + '</div>' : '') +
+        '<div class="post-stats"><span>来源：' + esc(src) + '</span>' + (x.author_name || x.authorName || x.author ? '<span>作者 ' + esc(x.author_name || x.authorName || x.author) + '</span>' : '') + (x.released_at || x.publishedAt ? '<span>' + esc(fmtTs(x.released_at || x.publishedAt)) + '</span>' : '') + '<span><a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">查看原文</a></span></div>' +
+        '</div></div>';
     }).join('');
   }
+  // ---------- 营地创建 / 编辑 / 删除（与 App 同接口同规则） ----------
+  // 创建 POST /forum/camps {name,description}：提交即机器人审核（过审上线 / 疑似进
+  // 人工待审 / 违规驳回回大类）；名称全网唯一、每位用户上限由服务端参数控制
+  // （站长不受上限约束，服务端判定）。我的营地 GET /forum/me/camps（含未上线态，
+  // 创建者可见驳回大类）；编辑 POST /forum/camps/:id/edit（仅创建者，active 改动
+  // 过审才生效、rejected 整体重提）；删除自建未上线营地 DELETE /forum/camps/:id。
+  function campStatusTag(c) {
+    if (c.status === 'active') return '<span class="tag green">已上线</span>';
+    if (c.status === 'pending') return '<span class="tag blue">审核中</span>';
+    if (c.status === 'rejected') return '<span class="tag red">未通过' + (c.modCategory ? '（' + esc(c.modCategory) + '）' : '') + '</span>';
+    if (c.status === 'closed') return '<span class="tag red">已关闭</span>';
+    return '<span class="tag">' + esc(c.status || '') + '</span>';
+  }
+  function showCampForm(camp) {
+    var box = $('#campFormBox'); if (!box) return;
+    var editing = !!camp;
+    box.innerHTML = '<form class="stack wide" id="campForm" style="margin-top:14px;border-top:1px solid var(--line-soft);padding-top:14px;">' +
+      '<strong>' + (editing ? (camp.status === 'rejected' ? '修改并重新提交' : '编辑营地') : '创建营地') + '</strong>' +
+      '<label>营地名称（最多 30 字，全网唯一）<input name="name" required maxlength="30" value="' + esc(editing ? camp.name || '' : '') + '"></label>' +
+      '<label>营地简介（最多 200 字）<textarea name="description" rows="3" maxlength="200">' + esc(editing ? camp.description || '' : '') + '</textarea></label>' +
+      '<p class="muted small" style="margin:0;">提交后先经机器人审核：通过即生效；疑似违规会进入人工审核；明显违规将被驳回并显示原因大类。每位用户最多创建 3 个营地（站长不受此限制）。</p>' +
+      '<div class="err" id="campFormErr"></div><div class="ok" id="campFormOk"></div>' +
+      '<span class="row"><button class="primary" type="submit">' + (editing ? '提交' : '创建营地') + '</button><button class="ghost" type="button" id="campFormCancel">取消</button></span></form>';
+    $('#campFormCancel').addEventListener('click', function () { box.innerHTML = ''; });
+    $('#campForm').addEventListener('submit', async function (ev) {
+      ev.preventDefault();
+      var fd = new FormData(ev.target);
+      var payload = { name: String(fd.get('name')).trim(), description: String(fd.get('description')).trim() };
+      var err = $('#campFormErr'), ok = $('#campFormOk'); err.textContent = ''; ok.textContent = '';
+      var r = editing
+        ? await api('/forum/camps/' + encodeURIComponent(camp.id) + '/edit', { method: 'POST', body: payload })
+        : await api('/forum/camps', { method: 'POST', body: payload });
+      if (!r.ok) { err.textContent = r.message || '提交失败，请稍后重试。'; return; }
+      var d = r.data || {};
+      ok.textContent = d.message || (d.status === 'active' || d.editStatus === 'applied' ? '已生效。' : '已提交。');
+      loadMyCamps();
+      var needRefresh = (!editing && d.status === 'active') || (editing && d.editStatus === 'applied');
+      if (needRefresh) setTimeout(function () {
+        var h = location.hash || '#/home';
+        if (h === '#/forum' || h === '#/') pageForum(route()); // 仍停留在论坛首页才刷新，避免把已跳走的用户拽回来
+      }, 900);
+    });
+  }
+  async function loadMyCamps() {
+    var box = $('#myCampsBox'); if (!box) return;
+    if (!loggedIn()) { box.innerHTML = ''; return; }
+    var r = await api('/forum/me/camps');
+    if (!r.ok) { box.innerHTML = '<p class="err small">' + esc(r.message || '加载失败，请稍后重试。') + '</p>'; return; }
+    var camps = (r.data && r.data.camps) || [];
+    if (!camps.length) { box.innerHTML = '<p class="muted small">您还没有创建营地。点击右上角「创建营地」发起一个主题社区。</p>'; return; }
+    box.innerHTML = '<div class="list">' + camps.map(function (c) {
+      var acts = '';
+      if (c.status === 'active' || c.status === 'rejected') acts += '<button class="mini-btn brand" type="button" data-campedit="' + esc(c.id) + '">' + (c.status === 'rejected' ? '修改并重新提交' : '编辑') + '</button>';
+      if (c.status === 'pending' || c.status === 'rejected') acts += '<button class="mini-btn danger" type="button" data-campdel="' + esc(c.id) + '">删除</button>';
+      return '<div class="item"><span class="grow"><a href="#/forum/camp/' + esc(c.id) + '"><strong>' + esc(c.name) + '</strong></a> ' + campStatusTag(c) +
+        (c.hasPendingEdit ? ' <span class="tag blue">有修改待审核</span>' : '') +
+        '<br><span class="muted small">' + esc(c.description || '') + '<br>成员 ' + esc(c.memberCount || 0) + ' · 帖子 ' + esc(c.postCount || 0) + '</span></span>' +
+        (acts ? '<span class="row" style="gap:2px;">' + acts + '</span>' : '') + '</div>';
+    }).join('') + '</div>';
+    box.querySelectorAll('[data-campedit]').forEach(function (b) { b.addEventListener('click', function () {
+      var c = camps.filter(function (x) { return String(x.id) === b.getAttribute('data-campedit'); })[0];
+      var fb = $('#campFormBox'); if (fb) fb.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      showCampForm(c || null);
+    }); });
+    box.querySelectorAll('[data-campdel]').forEach(function (b) { b.addEventListener('click', async function () {
+      if (!confirm('确定删除这个营地吗？该营地尚未上线，删除后不可恢复。')) return;
+      var rr = await api('/forum/camps/' + encodeURIComponent(b.getAttribute('data-campdel')), { method: 'DELETE' });
+      if (rr.ok) loadMyCamps(); else alert(rr.message || '删除失败，请稍后重试。');
+    }); });
+  }
+
   async function forumCampPage(campId) {
+    await probeOwner();
     view.innerHTML = '<div class="card"><p class="muted">正在加载…</p></div>';
     var r = await api('/forum/camps/' + encodeURIComponent(campId), { auth: loggedIn() });
     if (!r.ok) { view.innerHTML = '<div class="card"><h2>营地</h2><p class="err">' + esc(r.message) + '</p><p><a href="#/forum">返回论坛</a></p></div>'; return; }
     var c = (r.data && r.data.camp) || {};
     var posts = (r.data && r.data.posts) || [];
-    view.innerHTML = '<div class="card"><p><a href="#/forum">← 返回论坛</a></p><h2>' + esc(c.name || '营地') + '</h2>' +
-      '<p class="muted">' + esc(c.description || '') + '</p>' +
-      '<p class="muted small">成员 ' + esc(c.memberCount || 0) + ' · 帖子 ' + esc(c.postCount || 0) + (c.creator && c.creator.name ? ' · 创建者 ' + esc(c.creator.name) : '') + '</p>' +
-      (r.data.closed ? '<p class="notice">' + esc(r.data.message || '该营地已关闭。') + '</p>' : (loggedIn() ? '<p><button class="ghost" id="campJoinBtn" type="button">' + (c.joined ? '退出营地' : '加入营地') + '</button> <button class="primary" id="campPostsBtn" type="button">只看营地帖子</button></p>' : '')) + '</div>' +
-      '<div class="card"><h2>营地帖子</h2><div class="list">' + (posts.length ? posts.map(postItemHtml).join('') : '<p class="muted">暂无帖子。</p>') + '</div></div>';
+    var mine = loggedIn() && c.creator && c.creator.userId != null && Number(c.creator.userId) === Number(myUserId());
+    view.innerHTML = '<div class="card"><p style="margin-top:0;"><a href="#/forum">← 返回论坛</a></p>' +
+      '<div class="row"><span class="brand-mark" style="width:44px;height:44px;border-radius:12px;font-size:16px;">营</span>' +
+      '<span class="grow"><strong style="font-size:19px;">' + esc(c.name || '营地') + '</strong> ' + campStatusTag(c) + '<br>' +
+      '<span class="muted small">成员 ' + esc(c.memberCount || 0) + ' · 帖子 ' + esc(c.postCount || 0) + (c.creator && c.creator.displayName ? ' · 创建者 ' + esc(c.creator.displayName) : '') + '</span></span></div>' +
+      (c.description ? '<p style="margin:12px 0 0;">' + esc(c.description) + '</p>' : '') +
+      (r.data.closed ? '<p class="notice warnbox" style="margin-top:12px;">' + esc(r.data.message || '该营地已关闭。') + '</p>' : '') +
+      '<p class="row wrap" style="margin:14px 0 0;">' +
+      (loggedIn() && !r.data.closed ? '<button class="ghost" id="campJoinBtn" type="button">' + (c.joined ? '退出营地' : '加入营地') + '</button><button class="primary" id="campPostsBtn" type="button">只看营地帖子</button>' : '') +
+      (mine && c.status === 'active' ? '<button class="ghost" id="campEditBtn" type="button">编辑营地</button>' : '') +
+      (isSiteOwner() ? '<button class="ghost" id="campOwnerDelBtn" type="button" style="color:var(--danger);border-color:#f0c4c4;">删除营地（站长）</button>' : '') +
+      '</p><div id="campFormBox"></div></div>' +
+      '<div class="card"><h2>营地帖子</h2><div>' + (posts.length ? posts.map(postItemHtml).join('') : '<p class="empty">暂无帖子。</p>') + '</div></div>';
+    fillAvatars(view);
     var jb = $('#campJoinBtn');
     if (jb) jb.addEventListener('click', async function () {
       var rr = await api('/forum/camps/' + encodeURIComponent(campId) + '/join', { method: 'POST', body: { joined: !c.joined } });
@@ -780,6 +903,18 @@
     });
     var pb = $('#campPostsBtn');
     if (pb) pb.addEventListener('click', function () { forumState.campId = String(campId); forumState.tab = 'home'; location.hash = '#/forum'; pageForum(route()); });
+    var eb = $('#campEditBtn');
+    if (eb) eb.addEventListener('click', function () { showCampForm(c); });
+    var odb = $('#campOwnerDelBtn');
+    if (odb) odb.addEventListener('click', async function () {
+      // 站长删除营地：POST /owner/reviews/camps/:id/delete（站长会话＋reauth 两步确认，
+      // 与管理台其他敏感操作同一口径）。接口由服务端线新增；未上线时服务端回错误
+      // 文案会原样提示，不做假成功。
+      var f = await ownerConfirm({ title: '删除营地（站长）', danger: true, body: '您将以站长身份删除营地「' + (c.name || campId) + '」。删除后该营地将不可见，此操作记录在管理审计中。' });
+      if (!f) return;
+      var rr = await ownerDo('/owner/reviews/camps/' + encodeURIComponent(campId) + '/delete', f, '营地已删除。');
+      if (rr) { location.hash = '#/forum'; }
+    });
   }
   async function forumUserPage(userId) {
     view.innerHTML = '<div class="card"><h2>个人主页</h2><p class="muted">正在加载…</p></div>';
@@ -792,31 +927,58 @@
       '<div class="card"><h2>发表的评价</h2><div class="list">' + ((d.comments || []).length ? d.comments.map(function (c) {
         return '<div class="item"><span class="grow"><a href="#/forum/post/' + esc(c.postId) + '"><strong>' + esc(c.postTitle || '帖子') + '</strong></a><br><span class="muted">' + esc(c.content) + '</span><br><span class="muted small">' + esc(fmtTs(c.createdAt)) + '</span></span></div>';
       }).join('') : '<p class="muted">暂无评价。</p>') + '</div></div>';
+    fillAvatars(view);
     showAvatar($('#fuAvatar'), '/profile/' + encodeURIComponent(userId) + '/avatar', (u && u.avatarUpdatedAt) || '', 44);
   }
   async function forumPostPage(id) {
+    await probeOwner();
     view.innerHTML = '<div class="card"><p class="muted">正在加载…</p></div>';
     var r = await api('/forum/posts/' + encodeURIComponent(id), { auth: loggedIn() });
     if (!r.ok) { view.innerHTML = '<div class="card"><p class="err">' + esc(r.message) + '</p><p><a href="#/forum">返回论坛</a></p></div>'; return; }
     var p = (r.data && r.data.post) || {};
     var replies = (r.data && r.data.replies) || [];
     var reward = p.reward || null;
-    view.innerHTML = '<div class="card"><p><a href="#/forum">← 返回论坛</a></p><h2>' + esc(p.title || '(无标题)') + '</h2>' +
-      '<p class="muted small">作者：<a href="#/forum/user/' + esc(authorId(p)) + '">' + esc(authorName(p)) + '</a> · ' + esc(fmtTs(p.createdAt)) + ' · ' + countsHtml(p) + '</p>' +
-      '<div style="white-space:pre-wrap;word-break:break-word;">' + esc(p.content || '') + '</div>' +
+    var owner = isSiteOwner();
+    view.innerHTML = '<div class="card"><p style="margin-top:0;"><a href="#/forum">← 返回论坛</a></p>' +
+      '<h2 style="font-size:21px;line-height:1.4;margin-bottom:10px;">' + esc(p.title || '(无标题)') + postStatusTag(p) + '</h2>' +
+      '<div class="post-author" style="font-size:13.5px;">' + avatarSlotHtml(authorId(p), '', true, authorName(p), 30) +
+      '<a href="#/forum/user/' + esc(authorId(p)) + '"><strong style="color:var(--ink);">' + esc(authorName(p)) + '</strong></a><span class="faint">' + esc(fmtTs(p.createdAt)) + '</span></div>' +
+      '<div style="white-space:pre-wrap;word-break:break-word;line-height:1.75;margin-top:10px;">' + esc(p.content || '') + '</div>' +
+      '<div class="post-stats" style="margin-top:14px;"><span>点赞 ' + esc(p.likeCount || 0) + '</span><span>分享 ' + esc(p.shareCount || 0) + '</span><span>浏览 ' + esc(p.viewCount || 0) + '</span><span>回复 ' + esc(p.replyCount != null ? p.replyCount : replies.length) + '</span></div>' +
       '<p class="row wrap" style="margin-top:12px;">' +
       '<button class="ghost" id="likeBtn" type="button">' + (p.likedByMe ? '已点赞' : '点赞') + '（' + esc(p.likeCount || 0) + '）</button>' +
       '<button class="ghost" id="shareBtn" type="button">分享（' + esc(p.shareCount || 0) + '）</button>' +
       (loggedIn() ? '<button class="ghost" id="reportBtn" type="button">举报</button>' : '') +
+      (owner ? '<button class="ghost" id="ownerDelPostBtn" type="button" style="color:var(--danger);border-color:#f0c4c4;">删除帖子（站长）</button>' : '') +
       (reward && reward.eligible ? '<button class="primary" id="rewardBtn" type="button">申请千赞奖励</button>' : '') +
       (reward && reward.state && reward.state !== 'none' ? '<span class="muted small">千赞奖励申请状态：' + esc(reward.state === 'pending' ? '审核中' : reward.state === 'approved' ? '已通过' : reward.state) + '</span>' : '') +
       '</p><p class="small" id="postActionSt" role="status"></p></div>' +
-      '<div class="card"><h2>回复（' + esc(replies.length) + '）</h2><div class="list">' +
+      '<div class="card"><h2>回复（' + esc(replies.length) + '）</h2><div>' +
       (replies.length ? replies.map(function (x) {
-        return '<div class="item"><span class="grow"><strong>' + esc((x.author && x.author.name) || '用户') + '</strong> <span class="muted small">' + esc(fmtTs(x.createdAt)) + '</span><br><span style="white-space:pre-wrap;">' + esc(x.content) + '</span></div>';
-      }).join('') : '<p class="muted">暂无回复。</p>') + '</div>' +
-      (loggedIn() ? '<form class="stack" id="replyForm" style="margin-top:12px;max-width:100%;"><label>发表回复<textarea name="content" rows="3" required></textarea></label><div class="err" id="replyErr"></div><button class="primary" type="submit">提交回复</button></form>' : '<p class="muted small">登录后可参与回复。</p>') + '</div>';
+        var xname = (x.author && x.author.name) || '用户';
+        var xid = (x.author && x.author.userId) || '';
+        return '<div class="post-row">' + avatarSlotHtml(xid, '', true, xname, 36) +
+          '<div class="post-main"><div class="post-author"><a href="#/forum/user/' + esc(xid) + '"><strong style="color:var(--ink);">' + esc(xname) + '</strong></a><span class="faint">' + esc(relTime(x.createdAt)) + '</span>' +
+          (x.status && x.status !== 'published' ? '<span class="tag ' + (x.status === 'pending' ? 'blue' : 'red') + '">' + esc(x.status === 'pending' ? '审核中' : x.status) + '</span>' : '') +
+          (owner ? '<button class="mini-btn danger" type="button" data-owndelreply="' + esc(x.id) + '">删除</button>' : '') + '</div>' +
+          '<div style="white-space:pre-wrap;word-break:break-word;">' + esc(x.content) + '</div></div></div>';
+      }).join('') : '<p class="empty">暂无回复。</p>') + '</div>' +
+      (loggedIn() ? '<form class="stack wide" id="replyForm" style="margin-top:14px;"><label>发表回复<textarea name="content" rows="3" required></textarea></label><div class="err" id="replyErr"></div><span><button class="primary" type="submit">提交回复</button></span></form>' : '<p class="muted small">登录后可参与回复。</p>') + '</div>';
+    fillAvatars(view);
     var st = $('#postActionSt');
+    var odp = $('#ownerDelPostBtn');
+    if (odp) odp.addEventListener('click', async function () {
+      var f = await ownerConfirm({ title: '删除帖子（站长）', danger: true, body: '您将以站长身份删除帖子「' + (p.title || '') + '」。删除后帖子不可见，此操作记录在管理审计中。' });
+      if (!f) return;
+      var rr = await ownerDo('/owner/forum/post/' + encodeURIComponent(id) + '/delete', f, '帖子已删除。');
+      if (rr) location.hash = '#/forum';
+    });
+    view.querySelectorAll('[data-owndelreply]').forEach(function (b) { b.addEventListener('click', async function () {
+      var f = await ownerConfirm({ title: '删除回复（站长）', danger: true, body: '您将以站长身份删除这条回复。删除后回复不可见，此操作记录在管理审计中。' });
+      if (!f) return;
+      var rr = await ownerDo('/owner/forum/reply/' + encodeURIComponent(b.getAttribute('data-owndelreply')) + '/delete', f, '回复已删除。');
+      if (rr) forumPostPage(id);
+    }); });
     var likeBtn = $('#likeBtn');
     if (likeBtn) likeBtn.addEventListener('click', async function () {
       if (!loggedIn()) { location.hash = '#/login'; return; }
@@ -859,12 +1021,24 @@
   // 申请 GET /friends/requests → {incoming:[{id,...,user:publicView}], outgoing:[...]}
   // 好友 GET /friends → {friends:[SUPPORT_BOT_ENTRY, friendView{userId,nickname,username,pubkey}...]}
   // SUPPORT_BOT_ENTRY {kind:'support_bot', userId:'support', displayName:'智能客服', pinned:true, undeletable:true}
+  var chatActivePeer = '';
   async function pageFriends() {
     if (!loggedIn()) return needLogin('好友');
-    view.innerHTML = '<div class="card"><h2>好友</h2>' +
+    chatActivePeer = '';
+    view.innerHTML = '<div class="page-title">好友与会话</div><div class="chat-shell mode-list">' +
+      '<div class="chat-side">' +
+      '<div class="card"><h2>会话</h2><div id="convList"><p class="muted">正在加载…</p></div></div>' +
+      '<div class="card"><h2>找好友</h2>' +
       '<form class="row" id="friendSearch" style="margin-bottom:8px;"><input class="grow" name="q" placeholder="输入账户 ID 或邮箱精确搜索"><button class="ghost" type="submit">搜索</button></form>' +
-      '<div id="searchOut"></div><div id="reqBox"><p class="muted">正在加载申请…</p></div><div id="friendList"><p class="muted">正在加载好友…</p></div></div>' +
-      '<div class="card"><h2>会话</h2><div id="convList"><p class="muted">正在加载…</p></div></div>';
+      '<div id="searchOut"></div></div>' +
+      '<div class="card"><h2>好友申请</h2><div id="reqBox"><p class="muted">正在加载申请…</p></div></div>' +
+      '<div class="card"><h2>我的好友</h2><div id="friendList"><p class="muted">正在加载好友…</p></div></div>' +
+      '</div>' +
+      '<div class="chat-main"><div class="card" style="text-align:center;padding:56px 20px;">' +
+      '<span class="brand-mark" style="width:52px;height:52px;border-radius:14px;font-size:19px;">QF</span>' +
+      '<h2 style="margin-top:14px;">开始聊天</h2><p class="muted">从左侧选择一段会话或一位好友，即可开始端对端加密聊天。</p>' +
+      '<p class="muted small">网页版聊天与客户端同为端对端加密；身份密钥仅保存在页面内存中，关闭页面即清除。</p></div></div>' +
+      '</div>';
     $('#friendSearch').addEventListener('submit', async function (ev) {
       ev.preventDefault();
       var q = String(new FormData(ev.target).get('q')).trim(); if (!q) return;
@@ -872,9 +1046,9 @@
       var out = $('#searchOut');
       if (!r.ok) { out.innerHTML = '<p class="err">' + esc(r.message) + '</p>'; return; }
       var users = (r.data && r.data.users) || [];
-      out.innerHTML = users.length ? '<div class="list">' + users.map(function (u) {
-        return '<div class="item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><strong>' + esc(u.nickname || '用户') + '</strong></span><button class="primary" data-addfriend="' + esc(u.userId) + '" type="button">添加好友</button></div>';
-      }).join('') + '</div>' : '<p class="muted">未找到对应用户。请确认账户 ID 或邮箱无误（仅支持精确搜索）。</p>';
+      out.innerHTML = users.length ? '<div>' + users.map(function (u) {
+        return '<div class="pane-item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><span class="pname">' + esc(u.nickname || '用户') + '</span></span><button class="primary" data-addfriend="' + esc(u.userId) + '" type="button" style="padding:6px 13px;">添加好友</button></div>';
+      }).join('') + '</div>' : '<p class="muted small">未找到对应用户。请确认账户 ID 或邮箱无误（仅支持精确搜索）。</p>';
       fillAvatars(out);
       out.querySelectorAll('[data-addfriend]').forEach(function (b) { b.addEventListener('click', async function () {
         var rr = await api('/friends/request', { method: 'POST', body: { userId: Number(b.getAttribute('data-addfriend')) } });
@@ -894,14 +1068,15 @@
     var outgoing = d.outgoing || [];
     box.innerHTML =
       (friendActionErr ? '<p class="err">' + esc(friendActionErr) + '</p>' : '') +
-      (incoming.length ? '<h3>收到的申请</h3>' + incoming.map(function (x) {
+      (!incoming.length && !outgoing.length ? '<p class="muted small">暂无待处理的好友申请。</p>' : '') +
+      (incoming.length ? '<h3 style="margin-top:2px;">收到的申请</h3>' + incoming.map(function (x) {
         var u = x.user || {};
-        return '<div class="item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><strong>' + esc(u.nickname || '用户') + '</strong></span>' +
-          '<button class="ghost" data-accept="' + esc(x.id) + '">同意</button><button class="ghost" data-reject="' + esc(x.id) + '">拒绝</button></div>';
+        return '<div class="pane-item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><span class="pname">' + esc(u.nickname || '用户') + '</span></span>' +
+          '<button class="primary" data-accept="' + esc(x.id) + '" style="padding:6px 13px;">同意</button><button class="ghost" data-reject="' + esc(x.id) + '" style="padding:6px 13px;">拒绝</button></div>';
       }).join('') : '') +
       (outgoing.length ? '<h3>我发出的申请</h3>' + outgoing.map(function (x) {
         var u = x.user || {};
-        return '<div class="item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><strong>' + esc(u.nickname || '用户') + '</strong><br><span class="muted small">等待对方处理</span></span></div>';
+        return '<div class="pane-item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><span class="pname">' + esc(u.nickname || '用户') + '</span><br><span class="psub">等待对方处理</span></span></div>';
       }).join('') : '');
     fillAvatars(box);
     box.querySelectorAll('[data-accept]').forEach(function (b) { b.addEventListener('click', async function () { var rr = await api('/friends/request/' + encodeURIComponent(b.getAttribute('data-accept')) + '/accept', { method: 'POST', body: {} }); friendActionErr = rr.ok ? '' : (rr.message || '操作失败，请稍后重试。'); loadRequests(); loadFriends(); }); });
@@ -912,14 +1087,14 @@
     var r = await api('/friends');
     if (!r.ok) { box.innerHTML = '<p class="err">' + esc(r.message) + '</p>'; return; }
     var list = (r.data && r.data.friends) || [];
-    box.innerHTML = (friendActionErr ? '<p class="err">' + esc(friendActionErr) + '</p>' : '') + '<h3>我的好友</h3>' + (list.length ? '<div class="list">' + list.map(function (f) {
+    box.innerHTML = (friendActionErr ? '<p class="err">' + esc(friendActionErr) + '</p>' : '') + (list.length ? '<div>' + list.map(function (f) {
       if (f.kind === 'support_bot') {
-        return '<div class="item"><span class="grow"><a href="#/support"><strong>' + esc(f.displayName || '智能客服') + '</strong></a> <span class="chip">系统联系人 · 置顶</span><br><span class="muted small">自动回复系统，点击进入智能客服。</span></span><a class="ghost" href="#/support">联系客服</a></div>';
+        return '<a class="pane-item" href="#/support"><span class="brand-mark" style="width:44px;height:44px;border-radius:50%;font-size:14px;">客</span><span class="grow"><span class="pname">' + esc(f.displayName || '智能客服') + '</span> <span class="tag blue">系统 · 置顶</span><br><span class="psub">自动回复系统，点击进入智能客服</span></span></a>';
       }
       var uid = f.userId;
-      return '<div class="item">' + avatarSlotHtml(uid, f.avatarUpdatedAt, f.hasAvatar, f.nickname, 40) + '<span class="grow"><a href="#/chat/' + esc(uid) + '"><strong>' + esc(f.nickname || '用户') + '</strong></a>' + (f.username ? '<br><span class="muted small">账户 ID：' + esc(f.username) + '</span>' : '') + '</span>' +
-        '<a class="ghost" href="#/chat/' + esc(uid) + '">聊天</a><button class="ghost" data-del="' + esc(uid) + '">删除</button></div>';
-    }).join('') + '</div>' : '<p class="muted">暂无好友。可通过上方搜索添加。</p>');
+      return '<div class="pane-item">' + avatarSlotHtml(uid, f.avatarUpdatedAt, f.hasAvatar, f.nickname, 44) + '<span class="grow"><a href="#/chat/' + esc(uid) + '" style="color:var(--ink);"><span class="pname">' + esc(f.nickname || '用户') + '</span></a>' + (f.username ? '<br><span class="psub">账户 ID：' + esc(f.username) + '</span>' : '') + '</span>' +
+        '<a class="ghost" href="#/chat/' + esc(uid) + '" style="padding:6px 13px;">聊天</a><button class="mini-btn danger" data-del="' + esc(uid) + '">删除</button></div>';
+    }).join('') + '</div>' : '<p class="muted small">暂无好友。可通过上方搜索添加。</p>');
     fillAvatars(box);
     box.querySelectorAll('[data-del]').forEach(function (b) { b.addEventListener('click', async function () {
       if (!confirm('确定删除该好友吗？删除后将无法继续聊天。')) return;
@@ -932,10 +1107,10 @@
     var r = await api('/chat/conversations');
     if (!r.ok) { box.innerHTML = '<p class="err">' + esc(r.message) + '</p>'; return; }
     var list = (r.data && r.data.conversations) || [];
-    box.innerHTML = list.length ? '<div class="list">' + list.map(function (c) {
+    box.innerHTML = list.length ? '<div>' + list.map(function (c) {
       var u = c.user || {};
-      return '<a class="item" href="#/chat/' + esc(u.userId) + '">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><strong>' + esc(u.nickname || '用户') + '</strong><br><span class="muted small">最近消息 ' + esc(fmtTs(c.lastMessageAt)) + '</span></span>' + (c.unreadCount ? '<span class="chip" style="background:#eef3fe;color:var(--brand);">' + esc(c.unreadCount) + ' 条未读</span>' : '') + '<span aria-hidden="true">›</span></a>';
-    }).join('') + '</div>' : '<p class="muted">暂无会话。可从好友列表进入聊天。</p>';
+      return '<a class="pane-item' + (chatActivePeer && String(u.userId) === String(chatActivePeer) ? ' on' : '') + '" href="#/chat/' + esc(u.userId) + '">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 44) + '<span class="grow"><span class="pname">' + esc(u.nickname || '用户') + '</span><br><span class="psub">最近消息 ' + esc(relTime(c.lastMessageAt)) + '</span></span>' + (c.unreadCount ? '<span class="badge">' + esc(c.unreadCount) + '</span>' : '') + '</a>';
+    }).join('') + '</div>' : '<p class="muted small">暂无会话。可从好友列表进入聊天。</p>';
     fillAvatars(box);
   }
 
@@ -965,15 +1140,20 @@
     if (!loggedIn()) return needLogin('聊天');
     if (!peerId) { location.hash = '#/friends'; return; }
     if (String(peerId) === 'support') { location.hash = '#/support'; return; }
-    view.innerHTML = '<div class="card"><div class="row"><a class="ghost" href="#/friends">返回好友</a><span id="chatPeerAvatar"></span><strong id="chatPeerName">聊天</strong></div>' +
-      '<p class="notice" style="margin-top:10px;">' + CHAT_DISCLOSURE + '</p>' +
+    chatActivePeer = String(peerId);
+    view.innerHTML = '<div class="chat-shell mode-chat">' +
+      '<div class="chat-side"><div class="card"><h2>会话</h2><div id="convList"><p class="muted">正在加载…</p></div>' +
+      '<p style="margin:12px 0 0;"><a class="ghost" href="#/friends" style="display:block;text-align:center;">管理好友与申请</a></p></div></div>' +
+      '<div class="chat-main"><div class="card"><div class="row"><a class="ghost" href="#/friends">‹ 会话</a><span id="chatPeerAvatar"></span><strong id="chatPeerName" style="font-size:16.5px;">聊天</strong></div>' +
+      '<p class="notice" style="margin-top:12px;">' + CHAT_DISCLOSURE + '</p>' +
       '<div id="vaultBox"></div>' +
       '<div class="chatlog" id="chatLog"><p class="bubble sys">消息经端对端加密传输，服务器仅中继密文。</p></div>' +
       '<div id="reactionBar"></div>' +
       '<div class="composer"><textarea id="chatInput" placeholder="输入消息" rows="2"></textarea><button class="primary" id="chatSend" type="button">发送</button></div>' +
       '<p class="row wrap" style="margin-top:8px;"><button class="ghost" id="emojiBtn" type="button">表情</button><button class="ghost" id="attachBtn" type="button">附件</button><input type="file" id="attachFile" hidden><span class="small" id="chatStatus" role="status"></span></p>' +
       '<div id="emojiPanel" hidden><div class="chips">' + EMOJI_PANEL.map(function (e) { return '<button type="button" class="chip" data-emoji="' + e + '">' + e + '</button>'; }).join('') + '</div>' +
-      '<p class="muted small" style="margin-top:8px;">表情包（贴纸）：</p><div class="chips">' + EMOJI_PANEL.slice(0, 16).map(function (e) { return '<button type="button" class="chip" data-sticker="' + e.codePointAt(0).toString(16) + '">' + e + '</button>'; }).join('') + '</div></div></div>';
+      '<p class="muted small" style="margin-top:8px;">表情包（贴纸）：</p><div class="chips">' + EMOJI_PANEL.slice(0, 16).map(function (e) { return '<button type="button" class="chip" data-sticker="' + e.codePointAt(0).toString(16) + '">' + e + '</button>'; }).join('') + '</div></div></div></div></div>';
+    loadConversations();
     var status = $('#chatStatus');
     var log = $('#chatLog');
     var reactions = {}; // serverMsgId -> {reactorKey: emoji}
@@ -1115,34 +1295,290 @@
   }
 
   // ---------- 安全中心 ----------
-  // 契约：/security/devices {devices:[{id,name,platform,lastActiveAt,isCurrent,...}]}（字段为 lastActiveAt/isCurrent）
+  // 全套操作与客户端、官网安全中心同一组服务端端点（/security/*、/passkeys/*），
+  // 网页版此前只有状态查看，本次补齐：修改密码（三选一验证）、换绑邮箱（双向
+  // 验码）、安全设置开关、设备下线/取消信任、通行密钥登记与删除、注销账号
+  // （7 天冷静期、可撤销）。请求体口径与官网 assets/security.js 已验证实现一致。
+  function secSetMsg(id, text, ok) {
+    var e = document.getElementById(id); if (!e) return;
+    e.textContent = text || '';
+    e.className = 'small ' + (text ? (ok ? 'ok' : 'err') : 'muted');
+  }
+  // WebAuthn 编解码（与 @simplewebauthn 服务端 JSON 口径对接，同官网实现）
+  function waB64uToBuf(s) {
+    s = String(s || '').replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    var bin = atob(s), buf = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    return buf.buffer;
+  }
+  function waBufToB64u(buf) {
+    var bytes = new Uint8Array(buf || new ArrayBuffer(0)), s = '';
+    bytes.forEach(function (b) { s += String.fromCharCode(b); });
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function waPrepCreation(opts) {
+    opts.challenge = waB64uToBuf(opts.challenge);
+    if (opts.user && typeof opts.user.id === 'string') opts.user.id = waB64uToBuf(opts.user.id);
+    (opts.excludeCredentials || []).forEach(function (c) { if (typeof c.id === 'string') c.id = waB64uToBuf(c.id); });
+    return opts;
+  }
+  function waPrepRequest(opts) {
+    opts.challenge = waB64uToBuf(opts.challenge);
+    (opts.allowCredentials || []).forEach(function (c) { if (typeof c.id === 'string') c.id = waB64uToBuf(c.id); });
+    return opts;
+  }
+  function waCredToJson(cred, isCreate) {
+    var r = cred.response, out = {
+      id: cred.id, rawId: waBufToB64u(cred.rawId), type: cred.type,
+      response: { clientDataJSON: waBufToB64u(r.clientDataJSON) },
+      clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {}
+    };
+    if (isCreate) {
+      out.response.attestationObject = waBufToB64u(r.attestationObject);
+      if (r.getTransports) { try { out.response.transports = r.getTransports(); } catch (e) {} }
+    } else {
+      out.response.authenticatorData = waBufToB64u(r.authenticatorData);
+      out.response.signature = waBufToB64u(r.signature);
+      if (r.userHandle) out.response.userHandle = waBufToB64u(r.userHandle);
+    }
+    return out;
+  }
+  function waHas() { return !!(window.PublicKeyCredential && navigator.credentials); }
+  var secReauthTokens = { pwd: '', pk: '', del: '' };
+  async function secDoReauth(purpose, slot, stateId, msgId) {
+    if (!waHas()) { secSetMsg(msgId, '当前浏览器不支持通行密钥。', false); return ''; }
+    try {
+      var r = await api('/passkeys/reauth/options', { method: 'POST', body: { purpose: purpose } });
+      if (!r.ok) throw new Error(r.message || '操作失败，请稍后重试。');
+      var cred = await navigator.credentials.get({ publicKey: waPrepRequest(r.data.options) });
+      var vr = await api('/passkeys/reauth/verify', { method: 'POST', body: { purpose: purpose, response: waCredToJson(cred, false) } });
+      if (!vr.ok || !vr.data.reauthToken) throw new Error(vr.message || '操作失败，请稍后重试。');
+      secReauthTokens[slot] = vr.data.reauthToken;
+      var st = document.getElementById(stateId); if (st) st.textContent = '通行密钥验证已完成。';
+      secSetMsg(msgId, '', true);
+      return vr.data.reauthToken;
+    } catch (e) {
+      secSetMsg(msgId, (e && e.message) || '通行密钥验证未完成。', false);
+      return '';
+    }
+  }
+  function secVerifyBody(slot, pwdVal) {
+    if (secReauthTokens[slot]) return { reauthToken: secReauthTokens[slot] };
+    if (pwdVal) return { password: pwdVal };
+    return null;
+  }
+
   async function pageSecurity() {
     if (!loggedIn()) return needLogin('安全中心');
-    view.innerHTML = '<div class="card"><h2>安全中心</h2><p class="muted">正在加载…</p></div>';
+    view.innerHTML = '<div class="page-title">安全中心</div><div class="card"><p class="muted">正在加载…</p></div>';
     var r = await api('/security/me');
-    if (!r.ok) { view.innerHTML = '<div class="card"><h2>安全中心</h2><p class="err">' + esc(r.message) + '</p></div>'; return; }
+    if (!r.ok) { view.innerHTML = '<div class="page-title">安全中心</div><div class="card"><p class="err">' + esc(r.message) + '</p></div>'; return; }
     var d = r.data || {};
+    var setR = await api('/security/settings');
+    var loginProtection = setR.ok && setR.data ? setR.data.loginProtection !== false : d.loginProtection !== false;
     var devR = await api('/security/devices');
-    var devs = devR.ok ? ((devR.data && devR.data.devices) || []) : [];
+    var devs = devR.ok ? ((devR.data && devR.data.devices) || []) : null;
     var pkR = await api('/passkeys');
-    var pks = pkR.ok ? ((pkR.data && (pkR.data.passkeys || pkR.data.credentials)) || []) : [];
-    view.innerHTML = '<div class="card"><h2>安全中心</h2><table class="kv">' +
-      '<tr><td>登录保护</td><td>' + (d.loginProtection === false ? '未开启' : '已开启（环境异常时需邮箱验证码）') + '</td></tr>' +
-      '<tr><td>通行密钥</td><td>' + (pkR.ok ? ('已登记 ' + (Array.isArray(pks) ? pks.length : 0) + ' 个') : '加载失败') + '</td></tr>' +
-      '<tr><td>账号状态</td><td>' + esc(d.status || '正常') + '</td></tr></table>' +
-      '<p class="muted small" style="margin-top:8px;">修改密码、换绑邮箱、通行密钥登记与注销账号等操作，请在客户端内完成；网页版提供状态查看。账户异常？可前往<a href="#/appeal/status">申诉状态查询</a>。</p></div>' +
-      '<div class="card"><h2>登录设备</h2>' + (Array.isArray(devs) && devs.length ? '<div class="list">' + devs.map(function (x) {
-        return '<div class="item"><span class="grow"><strong>' + esc(x.name || x.deviceName || '设备') + '</strong><br><span class="muted small">' + esc(x.platform || '') + ' · 最近活跃 ' + esc(fmtTs(x.lastActiveAt)) + '</span></span>' +
-          (x.isCurrent ? '<span class="muted small">本设备</span>' : '<button class="ghost" data-devlogout="' + esc(x.id) + '">退出该设备</button>') + '</div>';
-      }).join('') + '</div>' : (devR.ok ? '<p class="muted">暂无设备记录。</p>' : '<p class="err">' + esc(devR.message || '设备加载失败，请稍后重试。') + '</p>')) + '</div>';
+    var pks = pkR.ok ? ((pkR.data && (pkR.data.passkeys || pkR.data.credentials)) || []) : null;
+    var deleting = d.status === 'deleting';
+    secReauthTokens = { pwd: '', pk: '', del: '' };
+    view.innerHTML =
+      '<div class="page-title">安全中心</div>' +
+      '<div class="card"><h2>账号概览</h2><table class="kv">' +
+      '<tr><td>绑定邮箱</td><td>' + esc(d.email || meBasic().email || '—') + '</td></tr>' +
+      '<tr><td>账户 ID</td><td>' + esc(meBasic().username || '—') + '</td></tr>' +
+      '<tr><td>账号状态</td><td>' + esc(deleting ? '注销冷静期中' : (d.status === 'active' || !d.status ? '正常' : d.status)) + '</td></tr>' +
+      '<tr><td>我的积分</td><td>' + (d.points && d.points.balance != null ? esc(d.points.balance) + ' 分' : '—') + '</td></tr></table>' +
+      (deleting ? '<div class="notice warnbox" style="margin-top:12px;"><strong>账号正处于注销冷静期</strong><br>生效时间：' + esc(fmtTs(d.deletionEffectiveAt)) + '。冷静期内可撤销注销；到期后账号数据将被删除且不可恢复。<br><button class="primary" id="secCancelDelete" type="button" style="margin-top:10px;">撤销注销</button><p class="small" id="secOverviewMsg" role="status"></p></div>' : '') +
+      '</div>' +
+
+      '<div class="card"><h2>修改密码</h2>' +
+      '<p class="muted small">先完成身份验证（三选一）：输入当前密码、使用通行密钥，或获取邮箱验证码；再设置新密码。修改后其他设备将退出登录，本设备保持登录。</p>' +
+      '<form class="stack" id="secPwdForm">' +
+      '<label>当前密码<input type="password" id="secCurPwd" autocomplete="current-password" placeholder="使用当前密码验证时填写"></label>' +
+      '<label>邮箱验证码<span class="row"><input id="secPwdCode" inputmode="numeric" class="grow" placeholder="使用邮箱验证码验证时填写"><button class="ghost" type="button" id="secPwdSendCode">发送验证码</button></span></label>' +
+      '<span class="row"><button class="ghost" type="button" id="secPwdPasskey">使用通行密钥验证</button><span class="small ok" id="secPwdReauthState"></span></span>' +
+      '<label>新密码（8 至 72 位）<input type="password" id="secNewPwd" autocomplete="new-password"></label>' +
+      '<label>确认新密码<input type="password" id="secNewPwd2" autocomplete="new-password"></label>' +
+      '<p class="small" id="secPwdMsg" role="status"></p>' +
+      '<span><button class="primary" type="submit">确认修改密码</button></span></form></div>' +
+
+      '<div class="card"><h2>更换绑定邮箱</h2>' +
+      '<p class="muted small">需同时验证当前邮箱与新邮箱的验证码。更换后其他设备将退出登录，系统会向新旧邮箱发送通知。</p>' +
+      '<form class="stack" id="secEmailForm">' +
+      '<label>新邮箱<input type="email" id="secNewEmail" autocomplete="email"></label>' +
+      '<label>当前邮箱验证码<span class="row"><input id="secOldCode" inputmode="numeric" class="grow"><button class="ghost" type="button" id="secOldSend">向当前邮箱发送</button></span></label>' +
+      '<label>新邮箱验证码<span class="row"><input id="secNewCode" inputmode="numeric" class="grow"><button class="ghost" type="button" id="secNewSend">向新邮箱发送</button></span></label>' +
+      '<p class="small" id="secEmailMsg" role="status"></p>' +
+      '<span><button class="primary" type="submit">确认更换邮箱</button></span></form></div>' +
+
+      '<div class="card"><h2>安全设置</h2>' +
+      '<label class="switch-row"><input type="checkbox" id="secLoginProtection" ' + (loginProtection ? 'checked' : '') + '> 开启环境异常双重验证</label>' +
+      '<p class="muted small">开启后，在新设备或异常登录环境下登录时，需完成邮箱验证码校验后方可登录；登录国家与以往明显不同同样属于触发情形，出国旅行时触发属于正常现象。关闭此开关后，强制安全复核仍然有效：在刷新令牌被重用、短时间多次登录失败等高风险情形下，系统仍会要求重新验证身份，该复核不可关闭。</p>' +
+      '<p class="small" id="secSettingsMsg" role="status"></p></div>' +
+
+      '<div class="card"><h2>登录设备</h2><div id="secDevList">' +
+      (devs === null ? '<p class="err">' + esc(devR.message || '设备加载失败，请稍后重试。') + '</p>' : (devs.length ? '<div class="list">' + devs.map(function (x) {
+        var meta = [x.platform || '', x.region || '', '最近活跃 ' + fmtTs(x.lastActiveAt), x.online ? '在线' : '', x.trusted ? '已信任' : ''].filter(Boolean).join(' · ');
+        return '<div class="item"><span class="grow"><strong>' + esc(x.name || x.deviceName || '设备') + '</strong><br><span class="muted small">' + esc(meta) + '</span></span>' +
+          (x.isCurrent ? '<span class="tag blue">本设备</span>' : '<button class="ghost" data-devlogout="' + esc(x.id) + '" style="padding:6px 12px;">下线</button>' + (x.trusted ? '<button class="mini-btn" data-devuntrust="' + esc(x.id) + '">取消信任</button>' : '')) + '</div>';
+      }).join('') + '</div>' : '<p class="muted">暂无设备记录。</p>')) + '</div><p class="small" id="secDevMsg" role="status"></p></div>' +
+
+      '<div class="card"><h2>通行密钥</h2>' +
+      (pks === null ? '<p class="err">' + esc(pkR.message || '通行密钥加载失败，请稍后重试。') + '</p>' : (pks.length ? '<div class="list">' + pks.map(function (pk) {
+        return '<div class="item"><span class="grow"><strong>' + esc(pk.name || '通行密钥') + '</strong><br><span class="muted small">创建于 ' + esc(fmtTs(pk.createdAt)) + '</span></span><button class="mini-btn danger" data-pkdel="' + esc(pk.id) + '">删除</button></div>';
+      }).join('') + '</div>' : '<p class="muted">尚未创建通行密钥。</p>')) +
+      '<form class="stack" id="secPkForm" style="margin-top:14px;">' +
+      '<label>验证密码<input type="password" id="secPkPwd" autocomplete="current-password" placeholder="创建或删除通行密钥时验证"></label>' +
+      '<span class="row"><button class="ghost" type="button" id="secPkPasskey">使用通行密钥验证</button><span class="small ok" id="secPkReauthState"></span></span>' +
+      '<label>新通行密钥名称<input type="text" id="secPkName" placeholder="例如：我的手机"></label>' +
+      '<p class="small" id="secPkMsg" role="status"></p>' +
+      '<span><button class="primary" type="button" id="secPkCreate">创建通行密钥</button></span></form>' +
+      (waHas() ? '' : '<p class="warn small">当前浏览器不支持通行密钥，无法在此创建或使用通行密钥验证。</p>') + '</div>' +
+
+      '<div class="card"><h2>注销账号</h2>' +
+      (deleting ? '<p class="muted">账号已在注销冷静期中（见上方账号概览），冷静期内可撤销。</p>' :
+      '<p class="muted small">注销申请提交后有 7 天冷静期，冷静期内登录即可撤销；冷静期届满后，服务器账号数据将被删除且不可恢复。注销后账号积分将清零，未使用的兑换码将作废。提交注销前须完成身份复核。</p>' +
+      '<form class="stack" id="secDelForm">' +
+      '<label>账户密码<input type="password" id="secDelPwd" autocomplete="current-password" placeholder="使用密码验证时填写"></label>' +
+      '<span class="row"><button class="ghost" type="button" id="secDelPasskey">使用通行密钥验证</button><span class="small ok" id="secDelReauthState"></span></span>' +
+      '<label class="switch-row"><input type="checkbox" id="secDelConfirm"> 我已了解上述后果，确认申请注销账号。</label>' +
+      '<p class="small" id="secDelMsg" role="status"></p>' +
+      '<span><button class="own-danger" type="button" id="secDelSubmit">提交注销申请</button></span></form>') + '</div>' +
+
+      '<div class="card"><h2>账号异常处理</h2><p class="muted">账户被冻结或封禁时，可通过下方入口处理：<a href="#/appeal/status">查询申诉状态</a> · <a href="#/appeal/recovery">提交找回申诉</a> · <a href="#/appeal/ban">提交封禁申诉</a></p></div>';
+
+    // ----- 概览：撤销注销 -----
+    var cancelBtn = $('#secCancelDelete');
+    if (cancelBtn) cancelBtn.addEventListener('click', async function () {
+      var rr = await api('/security/delete-account/cancel', { method: 'POST', body: {} });
+      secSetMsg('secOverviewMsg', rr.ok ? (rr.message || '注销已撤销。') : (rr.message || '撤销失败，请稍后重试。'), rr.ok);
+      if (rr.ok) setTimeout(pageSecurity, 800);
+    });
+
+    // ----- 修改密码 -----
+    $('#secPwdSendCode').addEventListener('click', async function () {
+      var btn = this;
+      var rr = await api('/security/password/code', { method: 'POST', body: {} });
+      secSetMsg('secPwdMsg', rr.ok ? '验证码已发送至您的绑定邮箱，请查收。' : (rr.message || '发送失败，请稍后重试。'), rr.ok);
+      if (rr.ok || rr.status === 429) armCodeCooldown(btn, 60);
+    });
+    $('#secPwdPasskey').addEventListener('click', function () { secDoReauth('change_password', 'pwd', 'secPwdReauthState', 'secPwdMsg'); });
+    $('#secPwdForm').addEventListener('submit', async function (ev) {
+      ev.preventDefault();
+      var np = $('#secNewPwd').value, np2 = $('#secNewPwd2').value;
+      if (np.length < 8 || np.length > 72) { secSetMsg('secPwdMsg', '密码长度需为 8 至 72 位，请重新输入。', false); return; }
+      if (np !== np2) { secSetMsg('secPwdMsg', '两次输入的密码不一致，请重新核对。', false); return; }
+      var body = { newPassword: np };
+      var vb = secVerifyBody('pwd', '');
+      if (vb && vb.reauthToken) body.reauthToken = vb.reauthToken;
+      else if ($('#secCurPwd').value) body.currentPassword = $('#secCurPwd').value;
+      else if ($('#secPwdCode').value.trim()) body.emailCode = $('#secPwdCode').value.trim();
+      else { secSetMsg('secPwdMsg', '请先完成身份验证：输入当前密码、使用通行密钥，或输入邮箱验证码。', false); return; }
+      var rr = await api('/security/password/change', { method: 'POST', body: body });
+      secSetMsg('secPwdMsg', rr.ok ? (rr.message || '密码已修改。') : (rr.message || '修改失败，请稍后重试。'), rr.ok);
+      if (rr.ok) { secReauthTokens.pwd = ''; $('#secCurPwd').value = ''; $('#secPwdCode').value = ''; $('#secNewPwd').value = ''; $('#secNewPwd2').value = ''; }
+    });
+
+    // ----- 换绑邮箱 -----
+    $('#secOldSend').addEventListener('click', async function () {
+      var btn = this;
+      var rr = await api('/security/email/request-old-code', { method: 'POST', body: {} });
+      secSetMsg('secEmailMsg', rr.ok ? '验证码已发送至当前绑定邮箱，请查收。' : (rr.message || '发送失败，请稍后重试。'), rr.ok);
+      if (rr.ok || rr.status === 429) armCodeCooldown(btn, 60);
+    });
+    $('#secNewSend').addEventListener('click', async function () {
+      var btn = this;
+      var ne = $('#secNewEmail').value.trim();
+      if (!ne) { secSetMsg('secEmailMsg', '请先填写新邮箱。', false); return; }
+      var rr = await api('/security/email/request-new-code', { method: 'POST', body: { newEmail: ne } });
+      secSetMsg('secEmailMsg', rr.ok ? '验证码已发送至新邮箱，请查收。' : (rr.message || '发送失败，请稍后重试。'), rr.ok);
+      if (rr.ok || rr.status === 429) armCodeCooldown(btn, 60);
+    });
+    $('#secEmailForm').addEventListener('submit', async function (ev) {
+      ev.preventDefault();
+      var ne = $('#secNewEmail').value.trim(), oc = $('#secOldCode').value.trim(), nc = $('#secNewCode').value.trim();
+      if (!ne || !oc || !nc) { secSetMsg('secEmailMsg', '请完整填写新邮箱与两处验证码。', false); return; }
+      var rr = await api('/security/email/confirm', { method: 'POST', body: { newEmail: ne, oldCode: oc, newCode: nc } });
+      if (rr.ok) {
+        saveSession({ email: ne }, !!localStorage.getItem('qf_access_token'));
+        secSetMsg('secEmailMsg', rr.message || '绑定邮箱已更换。', true);
+        setTimeout(pageSecurity, 800);
+      } else {
+        secSetMsg('secEmailMsg', rr.code === 'EMAIL_TAKEN' ? '该邮箱已被其他账户绑定。' : (rr.message || '更换失败，请稍后重试。'), false);
+      }
+    });
+
+    // ----- 安全设置开关 -----
+    var lpToggle = $('#secLoginProtection');
+    if (lpToggle) lpToggle.addEventListener('change', async function () {
+      var rr = await api('/security/settings', { method: 'PUT', body: { loginProtection: !!lpToggle.checked } });
+      secSetMsg('secSettingsMsg', rr.ok ? (rr.message || '设置已保存。') : (rr.message || '保存失败，请稍后重试。'), rr.ok);
+      if (!rr.ok) lpToggle.checked = !lpToggle.checked;
+    });
+
+    // ----- 设备下线 / 取消信任 -----
     view.querySelectorAll('[data-devlogout]').forEach(function (b) { b.addEventListener('click', async function () {
       b.disabled = true;
-      var r = await api('/security/devices/' + encodeURIComponent(b.getAttribute('data-devlogout')) + '/logout', { method: 'POST', body: {} });
-      if (r.ok) { pageSecurity(); return; }
+      var rr = await api('/security/devices/' + encodeURIComponent(b.getAttribute('data-devlogout')) + '/logout', { method: 'POST', body: {} });
+      if (rr.ok) { pageSecurity(); return; }
       b.disabled = false;
-      var e = document.createElement('p'); e.className = 'err small'; e.textContent = r.message || '退出该设备失败，请稍后重试。';
-      b.parentNode.appendChild(e);
+      secSetMsg('secDevMsg', rr.message || '退出该设备失败，请稍后重试。', false);
     }); });
+    view.querySelectorAll('[data-devuntrust]').forEach(function (b) { b.addEventListener('click', async function () {
+      b.disabled = true;
+      var rr = await api('/security/devices/' + encodeURIComponent(b.getAttribute('data-devuntrust')) + '/untrust', { method: 'POST', body: {} });
+      if (rr.ok) { pageSecurity(); return; }
+      b.disabled = false;
+      secSetMsg('secDevMsg', rr.message || '取消信任失败，请稍后重试。', false);
+    }); });
+
+    // ----- 通行密钥 -----
+    var pkFormEl = $('#secPkForm'); if (pkFormEl) pkFormEl.addEventListener('submit', function (ev) { ev.preventDefault(); });
+    var delFormEl = $('#secDelForm'); if (delFormEl) delFormEl.addEventListener('submit', function (ev) { ev.preventDefault(); });
+    $('#secPkPasskey').addEventListener('click', function () { secDoReauth('passkey_manage', 'pk', 'secPkReauthState', 'secPkMsg'); });
+    $('#secPkCreate').addEventListener('click', async function () {
+      if (!waHas()) { secSetMsg('secPkMsg', '当前浏览器不支持通行密钥。', false); return; }
+      var vb = secVerifyBody('pk', $('#secPkPwd').value);
+      if (!vb) { secSetMsg('secPkMsg', '请先完成身份验证：输入验证密码，或使用通行密钥验证。', false); return; }
+      try {
+        var rr = await api('/passkeys/register/options', { method: 'POST', body: vb });
+        if (!rr.ok) throw new Error(rr.message || '操作失败，请稍后重试。');
+        var cred = await navigator.credentials.create({ publicKey: waPrepCreation(rr.data.options) });
+        var body = { response: waCredToJson(cred, true) };
+        var nm = $('#secPkName').value.trim(); if (nm) body.name = nm;
+        var vr = await api('/passkeys/register/verify', { method: 'POST', body: body });
+        if (!vr.ok) throw new Error(vr.message || '操作失败，请稍后重试。');
+        secReauthTokens.pk = '';
+        secSetMsg('secPkMsg', vr.message || '通行密钥已创建。', true);
+        setTimeout(pageSecurity, 800);
+      } catch (e) { secSetMsg('secPkMsg', (e && e.message) || '创建失败，请稍后重试。', false); }
+    });
+    view.querySelectorAll('[data-pkdel]').forEach(function (b) { b.addEventListener('click', async function () {
+      var vb = secVerifyBody('pk', $('#secPkPwd').value);
+      if (!vb) { secSetMsg('secPkMsg', '请先完成身份验证：输入验证密码，或使用通行密钥验证。', false); return; }
+      if (!confirm('确定删除这个通行密钥吗？删除后将无法再用它登录或验证。')) return;
+      var rr = await api('/passkeys/' + encodeURIComponent(b.getAttribute('data-pkdel')), { method: 'DELETE', body: vb });
+      secSetMsg('secPkMsg', rr.ok ? (rr.message || '通行密钥已删除。') : (rr.message || '删除失败，请稍后重试。'), rr.ok);
+      if (rr.ok) { secReauthTokens.pk = ''; setTimeout(pageSecurity, 800); }
+    }); });
+
+    // ----- 注销账号 -----
+    var delPasskey = $('#secDelPasskey');
+    if (delPasskey) delPasskey.addEventListener('click', function () { secDoReauth('delete_account', 'del', 'secDelReauthState', 'secDelMsg'); });
+    var delSubmit = $('#secDelSubmit');
+    if (delSubmit) delSubmit.addEventListener('click', async function () {
+      if (!$('#secDelConfirm').checked) { secSetMsg('secDelMsg', '请先勾选确认注销。', false); return; }
+      var body = { confirm: true };
+      var vb = secVerifyBody('del', '');
+      if (vb && vb.reauthToken) body.reauthToken = vb.reauthToken;
+      else if ($('#secDelPwd').value) body.password = $('#secDelPwd').value;
+      else { secSetMsg('secDelMsg', '请先完成身份验证：输入账户密码，或使用通行密钥验证。', false); return; }
+      var rr = await api('/security/delete-account', { method: 'POST', body: body });
+      secSetMsg('secDelMsg', rr.ok ? (rr.message || '注销申请已提交，进入 7 天冷静期。') : (rr.message || '提交失败，请稍后重试。'), rr.ok);
+      if (rr.ok) { secReauthTokens.del = ''; setTimeout(pageSecurity, 900); }
+    });
   }
 
   // ---------- 智能客服 ----------
@@ -1151,7 +1587,7 @@
   // GET /support/session?sessionId= → {sessionId, tone, status, messages:[{id,authorRole,displayName,kbId,body,createdAt}]}
   async function pageSupport() {
     if (!loggedIn()) return needLogin('智能客服');
-    view.innerHTML = '<div class="card"><div class="row"><span class="avatar-ph">客</span><span class="grow"><strong>智能客服</strong><br><span class="muted small">自动回复系统 · 非人工坐席</span></span></div>' +
+    view.innerHTML = '<div class="card"><div class="row"><span class="brand-mark" style="width:44px;height:44px;border-radius:50%;font-size:15px;">客</span><span class="grow"><strong style="font-size:16.5px;">智能客服</strong><br><span class="muted small">自动回复系统 · 非人工坐席</span></span></div>' +
       '<p class="notice" style="margin-top:10px;">智能客服会话不使用端对端加密，会话内容将传输至服务器处理，以便为您提供帮助。请勿在会话中发送密码、验证码或其他敏感信息。</p>' +
       '<div class="chatlog" id="supLog"><div class="bubble">您好，我是智能客服（自动回复系统）。您可以向我咨询账号、积分、论坛与客户端使用方面的问题，我会尽力为您解答；如需人工处理，可点击下方「转人工」。</div></div>' +
       '<div class="chips">' + ['流量用完了怎么办', '积分如何获得', '账号被冻结了怎么办', '如何加入营地'].map(function (q) { return '<button type="button" class="chip" data-q="' + esc(q) + '">' + esc(q) + '</button>'; }).join('') + '</div>' +
@@ -1229,6 +1665,34 @@
     });
   }
 
+  // ---------- 意见反馈 ----------
+  // 与 App 意见反馈、官网「联系我们」同一通道：POST /feedback {content,contact?,
+  // platform:'website',source:'website',appVersion:'web',deviceHash}，内容 ≤2000 字。
+  // 未登录也可提交（服务端按设备限频），登录时带令牌便于维护者定位账号。
+  function pageFeedback() {
+    view.innerHTML = '<div class="page-title">意见反馈</div>' +
+      '<div class="card"><p class="muted">使用中遇到的问题、对产品功能的建议，都可以写在这里。反馈将直达维护者，与客户端「意见反馈」为同一通道；需要即时答疑可先咨询<a href="#/support">智能客服</a>。</p>' +
+      '<form class="stack wide" id="fbForm">' +
+      '<label>反馈内容（最多 2000 字）<textarea name="content" rows="6" required maxlength="2000" placeholder="请描述问题现象或您的建议，越具体越有助于处理。"></textarea></label>' +
+      '<label>联系方式（选填）<input name="contact" maxlength="200" placeholder="邮箱或其他联系方式，便于回复您"></label>' +
+      '<div class="err" id="fbErr"></div><div class="ok" id="fbOk"></div>' +
+      '<span><button class="primary" type="submit" id="fbSubmit">提交反馈</button></span></form>' +
+      (loggedIn() ? '' : '<p class="muted small" style="margin-top:10px;">您尚未登录，也可以直接提交反馈；登录后提交便于维护者定位您的账号。</p>') + '</div>';
+    $('#fbForm').addEventListener('submit', async function (ev) {
+      ev.preventDefault();
+      var fd = new FormData(ev.target);
+      var content = String(fd.get('content') || '').trim();
+      var contact = String(fd.get('contact') || '').trim();
+      var err = $('#fbErr'), ok = $('#fbOk'); err.textContent = ''; ok.textContent = '';
+      if (!content) { err.textContent = '请先写下您的意见或建议，再点提交。'; return; }
+      var btn = $('#fbSubmit'); btn.disabled = true;
+      var r = await api('/feedback', { method: 'POST', body: { content: content, contact: contact || undefined, platform: 'website', source: 'website', appVersion: 'web', deviceHash: deviceId() } });
+      btn.disabled = false;
+      if (r.ok) { ok.textContent = '反馈已提交，感谢您的意见。维护者会尽快查看处理。'; ev.target.reset(); }
+      else err.textContent = r.message || '提交失败，请稍后重试。';
+    });
+  }
+
   // ---------- 我的 ----------
   // 契约：GET /profile → ownView {userId,email,username,nickname,effectiveNickname,hasAvatar,...}
   // PUT /profile {nickname} / {avatar:{mime,dataBase64}|null}；头像 ≤200KB（AVATAR_MAX_BYTES），超出先在本地压缩
@@ -1255,7 +1719,8 @@
       '<h3>更换头像</h3><p class="row wrap"><input type="file" id="avatarFile" accept="image/png,image/jpeg,image/webp,image/gif"><button class="ghost" id="avatarUpload" type="button">上传头像</button></p>' +
       '<p class="muted small">头像大小上限 200KB；超出时将先在本地压缩（缩放为 JPEG）再上传。</p><p class="small" id="avatarSt" role="status"></p></div>' +
       '<div class="card"><h2>我的个人二维码</h2><div id="qrBox"><p class="muted">正在生成…</p></div><p class="muted small">二维码内容为您的账户 ID，好友可扫码后按账户 ID 精确搜索添加您。</p></div>' +
-      '<div class="card"><h2>我的论坛主页</h2><p class="muted">查看公开个人主页：' + (uid ? '<a href="#/forum/user/' + esc(uid) + '">前往我的个人主页</a>' : '—') + '</p></div>';
+      '<div class="card"><h2>我的论坛主页</h2><p class="muted">查看公开个人主页：' + (uid ? '<a href="#/forum/user/' + esc(uid) + '">前往我的个人主页</a>' : '—') + '</p></div>' +
+      '<div class="card"><h2>意见反馈</h2><p class="muted">问题与建议直达维护者：<a href="#/feedback">前往意见反馈</a>；即时答疑可咨询<a href="#/support">智能客服</a>。</p></div>';
     if (p.hasAvatar) showAvatar($('#meAvatar'), '/profile/avatar', myAvatarVer, 44);
     renderQr(uid);
     $('#nickForm').addEventListener('submit', async function (ev) {

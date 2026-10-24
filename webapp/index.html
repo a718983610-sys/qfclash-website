@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>QFClash 网页版</title>
-<link rel="stylesheet" href="assets/app.css?v=20261024b">
+<link rel="stylesheet" href="assets/app.css?v=20261024-ui1">
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script type="importmap">
 { "imports": {
@@ -21,7 +21,7 @@
   <button id="hamburger" class="hamburger" type="button" aria-label="打开或关闭侧边菜单" aria-expanded="false">
     <span></span><span></span><span></span>
   </button>
-  <div class="brand">QFClash 网页版</div>
+  <div class="brand"><span class="brand-mark" aria-hidden="true">QF</span>QFClash 网页版</div>
   <div class="topbar-note">网页版提供好友、聊天、论坛、积分兑换与智能客服；连接、节点与订阅功能请使用客户端。</div>
   <a class="site-home-btn" href="../">官网首页</a>
 </header>
@@ -35,6 +35,7 @@
     <a href="#/friends" data-route="friends">好友</a>
     <a href="#/security" data-route="security">安全中心</a>
     <a href="#/support" data-route="support">智能客服</a>
+    <a href="#/feedback" data-route="feedback">意见反馈</a>
     <a href="#/me" data-route="me">个人资料</a>
     <a href="#/owner" data-route="owner" id="ownerNavLink" hidden>站长管理台</a>
   </nav>
@@ -51,6 +52,6 @@
 </footer>
 
 <script type="module" src="assets/crypto-adapter.js?v=20261024a"></script>
-<script src="assets/app.js?v=20261024g"></script>
+<script src="assets/app.js?v=20261024-ui1"></script>
 </body>
 </html>
