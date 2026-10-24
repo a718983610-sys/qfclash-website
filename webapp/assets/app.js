@@ -957,7 +957,98 @@
       if (card) submitCardComment(card);
     });
   }
+  // ---------- ui5（C 版）：营地头像位 / 热门行 / 资讯流条目 / 营地榜单页 ----------
+  // 营地头像走服务端 GET /forum/camps/:id/avatar（迁移 0043）：camp.avatarUrl
+  // 是带 ?v= 版本戳的路径，与用户头像同一套 showAvatar 取图（blob URL）通道。
+  var CAMP_GLYPH_COLORS = ['#2563eb', '#059669', '#d97706', '#dc2626', '#7c3aed'];
+  function campGlyphColor(c) {
+    var s = String((c && c.name) || '营'), n = 0;
+    for (var i = 0; i < s.length; i++) n += s.charCodeAt(i);
+    return CAMP_GLYPH_COLORS[n % CAMP_GLYPH_COLORS.length];
+  }
+  function campAvatarSlotHtml(c, size) {
+    var ph = '<span class="camp-av-ph" style="width:' + size + 'px;height:' + size + 'px;background:' + campGlyphColor(c) + ';font-size:' + Math.max(10, Math.round(size * 0.45)) + 'px;">' + esc(((c && c.name) || '营').slice(0, 1)) + '</span>';
+    if (!c || !c.avatarUrl) return ph;
+    var q = String(c.avatarUrl).split('?');
+    var ver = '';
+    if (q[1]) q[1].split('&').forEach(function (kv) { var p = kv.split('='); if (p[0] === 'v') ver = p[1]; });
+    return '<span data-campav-path="' + esc(q[0]) + '" data-campav-ver="' + esc(ver) + '" data-campav-size="' + size + '">' + ph + '</span>';
+  }
+  function fillCampAvatars(root) {
+    (root || document).querySelectorAll('[data-campav-path]').forEach(function (slot) {
+      showAvatar(slot, slot.getAttribute('data-campav-path'), slot.getAttribute('data-campav-ver') || '', Number(slot.getAttribute('data-campav-size')) || 26);
+    });
+  }
+  // 热门营地行（首页展开区与榜单共用四要素：头像＋名字＋成员数＋帖子数）
+  function campHotLineHtml(c, rank) {
+    return '<div class="hot-line"><span class="rk' + (rank > 3 ? ' dim' : '') + '">' + rank + '</span>' +
+      campAvatarSlotHtml(c, 24) +
+      '<a class="nm" href="#/forum/camp/' + esc(c.id) + '">' + esc(c.name) + '</a>' +
+      '<span class="mt">成员 ' + esc(c.memberCount || 0) + ' · 帖子 ' + esc(c.postCount || 0) + '</span></div>';
+  }
+  var EXT_PLATFORM_NAMES = { github: 'GitHub', v2ex: 'V2EX', juejin: '掘金', sspai: '少数派', hackernews: 'Hacker News', devto: 'DEV', telegram: 'Telegram', lobsters: 'Lobsters', nodeseek: 'NodeSeek' };
+  // 资讯流·论坛帖条目：沿用 ui3 卡片钩子（data-post / data-like-btn /
+  // data-cmt-btn / data-cmtbox / data-card-board / data-avatar-uid /
+  // data-card-note），整卡点击与列表内点赞/评论行为与旧帖子卡完全一致。
+  function feedPostHtml(p, pinned) {
+    var excerpt = String(p.content || '').replace(/\s+/g, ' ').slice(0, 110);
+    var aid = authorId(p), aname = authorName(p);
+    var bm = boardMeta(p.board || '');
+    var av = aid ? avatarSlotHtml(aid, '', true, aname, 20) : '<span class="avatar-ph" style="width:20px;height:20px;font-size:10px;">' + esc(aname.slice(0, 1)) + '</span>';
+    var liked = !!p.likedByMe;
+    var tags = (pinned ? '<span class="ctag pin">置顶</span>' : '') + '<span class="ctag frm">论坛 · ' + esc(bm.name) + '</span>' +
+      (Number(p.likeCount || 0) >= 50 ? '<span class="ctag pin">热门</span>' : '');
+    return '<div class="post-row cit" data-post="' + esc(p.id) + '"><div class="post-main">' +
+      '<div class="cit-tags">' + tags + postStatusTag(p) + '</div>' +
+      '<a class="cit-ti" href="#/forum/post/' + esc(p.id) + '">' + esc(p.title || '(无标题)') + '</a>' +
+      (excerpt ? '<div class="cit-ex">' + esc(excerpt) + '</div>' : '') +
+      '<div class="cit-au">' + av + '<a class="cit-an" href="#/forum/user/' + esc(aid) + '">' + esc(aname) + '</a><span class="faint">' + esc(relTime(p.createdAt)) + '</span>' +
+      '<a class="cit-board" href="#/forum" data-card-board="' + esc(p.board || '') + '">' + esc(bm.name) + '</a></div>' +
+      '<div class="cit-mt">' +
+      '<button type="button" class="ps ps-act' + (liked ? ' liked' : '') + '" data-like-btn aria-pressed="' + (liked ? 'true' : 'false') + '" aria-label="点赞">' + ico('heart', 13) + '<span data-like-count>' + esc(p.likeCount || 0) + '</span></button>' +
+      '<button type="button" class="ps ps-act" data-cmt-btn aria-label="评论">' + ico('reply', 13) + '<span data-reply-count>' + esc(p.replyCount || 0) + '</span></button>' +
+      '<span class="ps">' + ico('eye', 13) + esc(p.viewCount || 0) + '</span></div>' +
+      '<div class="post-cmtbox" data-cmtbox hidden></div>' +
+      '<div class="post-note" data-card-note role="status"></div>' +
+      '</div></div>';
+  }
+  // 资讯流·外站精选条目：data-ext 沿用 ui3 委托（整卡开原文，标题链接自理）
+  function feedExtHtml(x) {
+    var src = EXT_PLATFORM_NAMES[x.platform] || x.platform || '外部平台';
+    var url = x.url || '#';
+    var when = x.published_at || x.released_at;
+    return '<div class="post-row cit" data-ext="' + esc(url) + '"><div class="post-main">' +
+      '<div class="cit-tags"><span class="ctag ext">精选 · ' + esc(src) + '</span></div>' +
+      '<a class="cit-ti" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + esc(x.title || '(无标题)') + '</a>' +
+      (x.summary ? '<div class="cit-ex">' + esc(x.summary) + '</div>' : '') +
+      '<div class="cit-mt"><span class="ps">' + esc(x.author_name || '原作者') + '</span>' + (when ? '<span class="ps">' + esc(relTime(when)) + '</span>' : '') + '<span class="ps">查看原文 ›</span></div>' +
+      '</div></div>';
+  }
+  // 热门营地榜单页（#/forum/camps）：个人营地按服务端热度序完整列出（服务
+  // 端 listCamps 排序口径＝成员/帖子/活跃综合，前端不重排、顺序可解释），每
+  // 行四要素（头像/名字/成员数/帖子数）＋加入钮，与首页展开区口径一致。
+  async function forumCampsRankPage() {
+    view.innerHTML = '<div class="card"><p style="margin-top:0;"><a href="#/forum">← 返回论坛</a></p><h2 style="margin-bottom:4px;">热门营地榜</h2><p class="muted small" style="margin:0 0 6px;">按热度从高到低排列（成员数、帖子数与活跃度综合）。</p><div id="campRankBox">' + sklRows(4) + '</div></div>';
+    var r = await api('/forum/camps', { auth: loggedIn() });
+    var box = $('#campRankBox'); if (!box) return;
+    if (!r.ok) { box.innerHTML = '<p class="err">' + esc(r.message || '榜单加载失败，请稍后重试。') + '</p>'; return; }
+    var camps = ((r.data && r.data.camps) || []).filter(function (c) { return c.creator && c.creator.userId != null; });
+    if (!camps.length) { box.innerHTML = '<p class="empty">暂无个人营地。</p>'; return; }
+    box.innerHTML = '<div class="rank-list">' + camps.map(function (c, i) {
+      return '<div class="rank-row"><span class="rk' + (i >= 3 ? ' dim' : '') + '">' + (i + 1) + '</span>' + campAvatarSlotHtml(c, 34) +
+        '<span class="rank-main"><a class="rank-name" href="#/forum/camp/' + esc(c.id) + '">' + esc(c.name) + '</a>' +
+        '<span class="rank-meta">成员 ' + esc(c.memberCount || 0) + ' · 帖子 ' + esc(c.postCount || 0) + (c.creator && c.creator.displayName ? ' · ' + esc(c.creator.displayName) + ' 创建' : '') + '</span></span>' +
+        (loggedIn() ? '<button class="ghost rank-join" data-joincamp="' + esc(c.id) + '" data-joined="' + (c.joined ? '1' : '') + '" type="button">' + (c.joined ? '已加入' : '加入') + '</button>' : '') + '</div>';
+    }).join('') + '</div>';
+    fillCampAvatars(box);
+    box.querySelectorAll('[data-joincamp]').forEach(function (b) { b.addEventListener('click', async function () {
+      var joined = b.getAttribute('data-joined') === '1';
+      var rr = await api('/forum/camps/' + encodeURIComponent(b.getAttribute('data-joincamp')) + '/join', { method: 'POST', body: { joined: !joined } });
+      if (rr.ok) forumCampsRankPage(); else alert(rr.message || '操作失败，请稍后重试。');
+    }); });
+  }
   async function pageForum(r) {
+    if (r.arg === 'camps') return forumCampsRankPage();
     if (r.arg === 'user' && r.sub) return forumUserPage(r.sub);
     if (r.arg === 'post' && r.sub) return forumPostPage(r.sub);
     if (r.arg === 'camp' && r.sub) return forumCampPage(r.sub);
@@ -999,49 +1090,86 @@
       fillAvatars(body);
       return;
     }
-    // 首页：板块 + 帖子列表（真接口） + 营地 + 外站精选
+    // 首页（ui5 · C 版极简资讯型，mockup-C 定版）：官方社区横滑块置外层、
+    // 个人营地收进可展开区（热门前 5＋「全部」榜单页）、外站精选与论坛帖子
+    // 合并为一条资讯流（来源标签区分），近无阴影、字阶克制。
     var boardsR = await api('/forum/boards', { auth: false });
     var boards = boardsR.ok ? ((boardsR.data && boardsR.data.boards) || []) : [];
     var campsR = await api('/forum/camps', { auth: loggedIn() });
     var camps = campsR.ok ? ((campsR.data && campsR.data.camps) || []) : [];
+    var officialCamps = camps.filter(function (c) { return !(c.creator && c.creator.userId != null); });
+    var personalCamps = camps.filter(function (c) { return c.creator && c.creator.userId != null; });
+    var extR = await api('/forum/external?limit=10', { auth: false });
+    var extItems = extR.ok ? ((extR.data && extR.data.posts) || []) : [];
     var postsUrl = '/forum/posts?limit=20&offset=0' + (forumState.board ? '&board=' + encodeURIComponent(forumState.board) : '') + (forumState.campId ? '&campId=' + encodeURIComponent(forumState.campId) : '');
     var postsR = await api(postsUrl, { auth: loggedIn() });
     var posts = postsR.ok ? ((postsR.data && postsR.data.posts) || []) : null;
+    // 资讯流合并：公告帖置顶（「置顶」标签，最多 2 条），其余帖子与外站精选
+    // 按各自时间倒序交织；按板块/营地筛选时不混精选、不置顶（口径单一）。
+    var feedHtml = '';
+    if (posts === null) {
+      feedHtml = '<p class="err" style="padding:14px 0;">' + esc(postsR.message) + '</p>';
+    } else {
+      var filtering = !!(forumState.board || forumState.campId);
+      var pinned = [], restPosts = [];
+      posts.forEach(function (p) { if (!filtering && p.board === 'announcements' && pinned.length < 2) pinned.push(p); else restPosts.push(p); });
+      var merged = restPosts.map(function (p) { return { t: Number(p.createdAt || 0), html: feedPostHtml(p, false) }; });
+      if (!filtering) extItems.forEach(function (x) { merged.push({ t: Number(x.published_at || x.released_at || 0), html: feedExtHtml(x) }); });
+      merged.sort(function (a, b) { return b.t - a.t; });
+      feedHtml = pinned.map(function (p) { return feedPostHtml(p, true); }).join('') + merged.map(function (m) { return m.html; }).join('');
+      if (!feedHtml) feedHtml = '<div class="empty-v2"><div class="ev-ico">' + ico('inbox', 30) + '</div><div class="ev-title">暂无内容</div><div class="ev-sub">这里还没有帖子，来发第一帖吧。</div></div>';
+    }
+    var railHtml = officialCamps.length ? officialCamps.map(function (c, i) {
+      return '<a class="cchip" href="#/forum/camp/' + esc(c.id) + '"><span class="gly g' + (i % 5 + 1) + '">' + esc((c.name || '社').slice(0, 1)) + '</span><span class="nm">' + esc(c.name) + '</span><span class="mt">成员 ' + esc(c.memberCount || 0) + ' · 帖子 ' + esc(c.postCount || 0) + '</span></a>';
+    }).join('') : '<p class="muted small" style="padding:2px;">暂无官方社区。</p>';
+    var hotHtml = personalCamps.slice(0, 5).map(function (c, i) { return campHotLineHtml(c, i + 1); }).join('');
     body.innerHTML =
-      '<div class="card"><h2 style="margin-bottom:12px;">板块</h2><div class="board-grid">' +
-      boardCardHtml('', '全部板块') +
-      boards.map(function (b) { return boardCardHtml(b.key || b.id, b.name || b.title || b.key); }).join('') + '</div>' +
-      (boardsR.ok ? '' : '<p class="err small" style="margin:10px 0 0;">' + esc(boardsR.message || '板块加载失败，请稍后重试。') + '</p>') + '</div>' +
-      '<div class="card"><div class="row"><h2 class="grow" style="margin:0;">帖子</h2>' +
-      (loggedIn() ? '<button class="primary" id="newPostBtn" type="button">发布帖子</button>' : '<a class="primary" href="#/login">登录后发帖</a>') + '</div>' +
-      (forumState.campId ? '<p class="muted small">当前按营地筛选帖子。<button type="button" class="chip" id="clearCampFilter">清除营地筛选</button></p>' : '') +
-      '<div style="margin-top:14px;">' + (posts === null ? '<p class="err">' + esc(postsR.message) + '</p>' : (posts.length ? '<div class="feed" id="postFeed">' + posts.map(postItemHtml).join('') + '</div>' + (posts.length >= 20 ? '<div class="load-more-wrap"><button class="ghost" id="morePostsBtn" type="button">加载更多</button></div>' : '') : '<div class="empty-v2"><div class="ev-ico">' + ico('inbox', 30) + '</div><div class="ev-title">暂无帖子</div><div class="ev-sub">这个板块还没有帖子，来发第一帖吧。</div></div>')) + '</div>' +
-      '<div id="composeBox"></div></div>' +
-      '<div class="card"><div class="row"><span class="grow"><h2 style="margin:0;">主题社区 · 营地</h2><span class="muted small">围绕具体主题的讨论社区，加入后可在营地内发帖。</span></span>' +
-      (loggedIn() ? '<button class="ghost" id="createCampBtn" type="button">创建营地</button>' : '') + '</div>' +
+      '<section class="csec"><div class="csec-head"><h2>官方社区</h2><button type="button" class="csec-more" id="howToBtn" aria-expanded="false">使用方法 ›</button></div>' +
+      '<div class="crail">' + railHtml + '</div><div id="howToBox"></div></section>' +
+      '<section class="csec"><div class="csec-head"><h2>热门营地</h2><a class="csec-more" href="#/forum/camps">全部 ›</a></div>' +
+      '<div class="cfold"><button type="button" class="cfold-head" id="campFoldHead" aria-expanded="false"><b>全部营地</b><span class="cfold-n">共 ' + personalCamps.length + ' 个 · 创建需机器人审核</span><span class="cfold-chev" id="campFoldChev">展开 ⌄</span></button>' +
+      '<div id="campFoldBody" hidden>' + (hotHtml || '<p class="muted small" style="padding:12px 14px;">暂无个人营地。</p>') +
+      '<div class="hot-line" style="justify-content:center;"><a href="#/forum/camps">查看全部营地 ›</a></div></div></div>' +
       '<div id="campFormBox"></div>' +
-      (camps.length ? '<div class="camp-grid" style="margin-top:14px;">' + camps.map(function (c, ci) {
-        return '<div class="camp-card"><div class="camp-cover camp-grad-' + (ci % 6) + '"><span class="cc-glyph">' + esc((c.name || '营').slice(0, 1)) + '</span><span class="cc-sub">营地 · CAMP</span></div>' +
-          '<div class="camp-body"><a class="camp-name" href="#/forum/camp/' + esc(c.id) + '">' + esc(c.name) + '</a>' +
-          '<span class="camp-desc">' + esc(c.description || '暂无简介') + '</span>' +
-          '<span class="camp-meta">成员 ' + esc(c.memberCount || 0) + ' · 帖子 ' + esc(c.postCount || 0) + (c.creator && c.creator.displayName ? ' · ' + esc(c.creator.displayName) + ' 创建' : '') + '</span>' +
-          (loggedIn() ? '<span style="margin-top:8px;"><button class="ghost" data-joincamp="' + esc(c.id) + '" data-joined="' + (c.joined ? '1' : '') + '" style="padding:6px 14px;">' + (c.joined ? '已加入' : '加入营地') + '</button></span>' : '') + '</div></div>';
-      }).join('') + '</div>' : (campsR.ok ? '<p class="empty">暂无营地。</p>' : '<p class="err">' + esc(campsR.message || '营地加载失败，请稍后重试。') + '</p>')) +
-      (loggedIn() ? '<h3>我创建的营地</h3><div id="myCampsBox"><p class="muted small">正在加载…</p></div>' : '') + '</div>' +
-      '<div class="card"><h2>外站精选</h2><p class="muted small">来自外部平台的精选内容，版权归原作者所有；点击可查看原文。</p><div id="extHighlights">' + sklCards(2) + '</div></div>' +
+      '<div class="camp-actions">' + (loggedIn() ? '<button class="ghost" id="createCampBtn" type="button">创建营地</button>' : '<a class="ghost" href="#/login">登录后创建营地</a>') + '</div>' +
+      (loggedIn() ? '<div class="my-camps"><h3>我创建的营地</h3><div id="myCampsBox"><p class="muted small">正在加载…</p></div></div>' : '') + '</section>' +
+      '<section class="csec"><div class="csec-head"><h2>资讯流</h2><span class="csec-note">精选与论坛帖子合并</span></div>' +
+      '<div class="ctabs" role="tablist"><button type="button" data-btab=""' + (forumState.board === '' && !forumState.campId ? ' class="on"' : '') + '>推荐</button>' +
+      boards.map(function (b) { var k = b.key || b.id; return '<button type="button" data-btab="' + esc(k) + '"' + (forumState.board === k ? ' class="on"' : '') + '>' + esc(b.name || b.title || k) + '</button>'; }).join('') + '</div>' +
+      (boardsR.ok ? '' : '<p class="err small" style="margin:8px 2px 0;">' + esc(boardsR.message || '板块加载失败，请稍后重试。') + '</p>') +
+      (forumState.campId ? '<p class="muted small" style="margin:8px 2px 0;">当前按营地筛选帖子。<button type="button" class="chip" id="clearCampFilter">清除营地筛选</button></p>' : '') +
+      '<div class="row" style="margin:10px 2px 8px;">' + (loggedIn() ? '<button class="primary" id="newPostBtn" type="button">发布帖子</button>' : '<a class="primary" href="#/login">登录后发帖</a>') + '</div>' +
+      '<div class="cfeed" id="postFeed">' + feedHtml + '</div>' +
+      ((posts && posts.length >= 20) ? '<div class="load-more-wrap"><button class="ghost" id="morePostsBtn" type="button">加载更多</button></div>' : '') +
+      '<div id="composeBox"></div></section>' +
       (loggedIn() ? '<button class="fab" id="fabPost" type="button" aria-label="发布帖子"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>发帖</button>' : '');
     fillAvatars(body);
+    fillCampAvatars(body);
     loadMyCamps();
     var ccb = $('#createCampBtn');
     if (ccb) ccb.addEventListener('click', function () { showCampForm(null); });
-    body.querySelectorAll('[data-board]').forEach(function (b) { b.addEventListener('click', function () { forumState.board = b.getAttribute('data-board'); pageForum(route()); }); });
+    var htb = $('#howToBtn');
+    if (htb) htb.addEventListener('click', function () {
+      var box = $('#howToBox'); if (!box) return;
+      var open = htb.getAttribute('aria-expanded') === 'true';
+      htb.setAttribute('aria-expanded', String(!open));
+      box.innerHTML = open ? '' : '<div class="howto"><strong>使用方法</strong><ul>' +
+        '<li>游客可以直接浏览帖子与精选内容；登录后可以发帖、回复、点赞，也可以创建或加入营地。</li>' +
+        '<li>「营地」是围绕主题的小社区：官方社区由平台维护；个人营地由用户创建，创建时先经机器人审核，通过后上线。</li>' +
+        '<li>营地创建者可以修改自己营地的名称、简介与头像，修改内容同样会经过审核后才生效。</li>' +
+        '<li>热门营地按成员数、帖子数与活跃度综合排序；点「全部」可查看完整榜单。</li>' +
+        '<li>发帖、回复与营地内容都会经过审核，违规内容将被驳回并显示原因大类。</li></ul></div>';
+    });
+    var cfh = $('#campFoldHead');
+    if (cfh) cfh.addEventListener('click', function () {
+      var fb = $('#campFoldBody'); if (!fb) return;
+      var open = cfh.getAttribute('aria-expanded') === 'true';
+      cfh.setAttribute('aria-expanded', String(!open));
+      fb.hidden = open;
+      var chev = $('#campFoldChev'); if (chev) chev.textContent = open ? '展开 ⌄' : '收起 ⌃';
+    });
+    body.querySelectorAll('[data-btab]').forEach(function (b) { b.addEventListener('click', function () { forumState.board = b.getAttribute('data-btab'); forumState.campId = ''; pageForum(route()); }); });
     var ccf = $('#clearCampFilter'); if (ccf) ccf.addEventListener('click', function () { forumState.campId = ''; pageForum(route()); });
-    body.querySelectorAll('[data-joincamp]').forEach(function (b) { b.addEventListener('click', async function () {
-      var joined = b.getAttribute('data-joined') === '1';
-      var r = await api('/forum/camps/' + encodeURIComponent(b.getAttribute('data-joincamp')) + '/join', { method: 'POST', body: { joined: !joined } });
-      if (r.ok) pageForum(route()); else alert(r.message || '操作失败，请稍后重试。');
-    }); });
-    loadExternalHighlights();
     var np = $('#newPostBtn');
     if (np) np.addEventListener('click', function () {
       $('#composeBox').innerHTML = '<form class="stack" id="postForm" style="margin-top:10px;max-width:100%;"><label>板块<select name="board">' +
@@ -1057,7 +1185,7 @@
         if (rr.ok) { forumState.tab = 'home'; pageForum(route()); } else $('#postErr').textContent = rr.message || '发布失败，请稍后重试。';
       });
     });
-    // v2：帖子流加载更多（与首屏同一查询口径，offset 递进；不足一页即收起按钮）
+    // 加载更多：仅帖子流续页（与首屏同一查询口径，offset 递进），追加为资讯流条目
     var moreBtn = $('#morePostsBtn');
     if (moreBtn) {
       var postOffset = 20;
@@ -1068,7 +1196,7 @@
         var feed = $('#postFeed');
         if (rr.ok && feed) {
           var more = (rr.data && rr.data.posts) || [];
-          feed.insertAdjacentHTML('beforeend', more.map(postItemHtml).join(''));
+          feed.insertAdjacentHTML('beforeend', more.map(function (p) { return feedPostHtml(p, false); }).join(''));
           fillAvatars(feed);
           postOffset += more.length;
           if (more.length < 20) { moreBtn.parentElement.style.display = 'none'; }
@@ -1076,7 +1204,7 @@
         } else { moreBtn.disabled = false; moreBtn.textContent = '加载失败，点此重试'; }
       });
     }
-    // v2：发帖 FAB 与底部发帖钮——打开发帖框并滚到其位置
+    // 发帖 FAB 与底部发帖钮——打开发帖框并滚到其位置
     function openCompose() {
       var b = $('#newPostBtn'); if (!b) return;
       if (!$('#postForm')) b.click();
@@ -1086,38 +1214,14 @@
     if (fab) fab.addEventListener('click', openCompose);
     if (composeWanted) { composeWanted = false; setTimeout(openCompose, 60); }
   }
-  // 外站精选：GET /forum/external {posts:[{id,platform,title,summary,url,authorName,publishedAt...}]}（以服务端 external.js 回包为准）
-  async function loadExternalHighlights() {
-    var box = $('#extHighlights'); if (!box) return;
-    var r = await api('/forum/external?limit=10', { auth: false });
-    var items = r.ok ? ((r.data && (r.data.posts || r.data.items)) || []) : [];
-    if (!r.ok) { box.innerHTML = '<p class="err">' + esc(r.message || '精选内容加载失败，请稍后重试。') + '</p>'; return; }
-    if (!Array.isArray(items) || !items.length) { box.innerHTML = '<div class="empty-v2"><div class="ev-ico">' + ico('star', 30) + '</div><div class="ev-title">暂无精选内容</div><div class="ev-sub">外站精选会不定期更新，请稍后再来看看。</div></div>'; return; }
-    function extMeta(x, src) {
-      return '<span>来源：' + esc(src) + '</span>' + (x.author_name || x.authorName || x.author ? '<span>作者 ' + esc(x.author_name || x.authorName || x.author) + '</span>' : '') + (x.released_at || x.publishedAt ? '<span>' + esc(fmtTs(x.released_at || x.publishedAt)) + '</span>' : '') + '<span>查看原文 ›</span>';
-    }
-    box.innerHTML = items.map(function (x, xi) {
-      var src = x.platform || x.source || '外部平台';
-      var url = x.url || x.originalUrl || '#';
-      if (xi === 0) {
-        return '<a class="ext-feature" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer"><span class="ef-band"><span class="ef-plat">' + ico('star', 17) + esc(src) + ' · 精选</span></span>' +
-          '<span class="ef-body"><span class="ef-title">' + esc(x.title || '(无标题)') + '</span>' +
-          (x.summary || x.excerpt ? '<span class="ef-excerpt">' + esc(x.summary || x.excerpt) + '</span>' : '') +
-          '<span class="ef-meta">' + extMeta(x, src) + '</span></span></a>';
-      }
-      return '<div class="post-row" data-ext="' + esc(url) + '"><div class="post-main"><span class="tag blue">' + esc(src) + '</span> ' +
-        '<a class="post-title" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + esc(x.title || '(无标题)') + '</a>' +
-        (x.summary || x.excerpt ? '<div class="post-excerpt">' + esc(x.summary || x.excerpt) + '</div>' : '') +
-        '<div class="post-stats">' + extMeta(x, src) + '</div>' +
-        '</div><div class="post-cover bc-general" aria-hidden="true" style="font-size:21px;font-weight:800;">' + esc(String(src).slice(0, 1)) + '</div></div>';
-    }).join('');
-  }
   // ---------- 营地创建 / 编辑 / 删除（与 App 同接口同规则） ----------
-  // 创建 POST /forum/camps {name,description}：提交即机器人审核（过审上线 / 疑似进
+  // 创建 POST /forum/camps {name,description,avatar?}：提交即机器人审核（过审上线 / 疑似进
   // 人工待审 / 违规驳回回大类）；名称全网唯一、每位用户上限由服务端参数控制
   // （站长不受上限约束，服务端判定）。我的营地 GET /forum/me/camps（含未上线态，
-  // 创建者可见驳回大类）；编辑 POST /forum/camps/:id/edit（仅创建者，active 改动
-  // 过审才生效、rejected 整体重提）；删除自建未上线营地 DELETE /forum/camps/:id。
+  // 创建者可见驳回大类）；编辑 POST /forum/camps/:id/edit（仅创建者，{name?,
+  // description?, avatar?}，avatar 为 {mime,dataBase64} 换图或 null 移除——迁移
+  // 0043；active 改动过审才生效、rejected 整体重提）；删除自建未上线营地
+  // DELETE /forum/camps/:id。
   function campStatusTag(c) {
     if (c.status === 'active') return '<span class="tag green">已上线</span>';
     if (c.status === 'pending') return '<span class="tag blue">审核中</span>';
@@ -1125,21 +1229,73 @@
     if (c.status === 'closed') return '<span class="tag red">已关闭</span>';
     return '<span class="tag">' + esc(c.status || '') + '</span>';
   }
+  // 营地头像客户端处理（迁移 0043 接口：{mime, dataBase64}，服务端上限
+  // 200KB）：小图直传；大图 canvas 居中裁方＋JPEG 逐级压缩到 195KB 内。
+  function bytesToB64(bytes) {
+    var s = '', CH = 0x8000;
+    for (var i = 0; i < bytes.length; i += CH) s += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+    return btoa(s);
+  }
+  async function processCampAvatarFile(file) {
+    var okTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+    if (okTypes.indexOf(file.type) < 0) throw new Error('营地头像只支持 PNG、JPG、WebP 或 GIF 图片。');
+    var buf = new Uint8Array(await file.arrayBuffer());
+    if (buf.length <= 190 * 1024) return { mime: file.type, dataBase64: bytesToB64(buf) };
+    var url = URL.createObjectURL(file);
+    try {
+      var img = await new Promise(function (res, rej) { var im = new Image(); im.onload = function () { res(im); }; im.onerror = rej; im.src = url; });
+      var size = 256, q = 0.85, blob = null;
+      for (var attempt = 0; attempt < 5; attempt++) {
+        var cv = document.createElement('canvas'); cv.width = size; cv.height = size;
+        var cx = cv.getContext('2d'); cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, size, size);
+        var sc = Math.max(size / img.width, size / img.height);
+        var w = img.width * sc, h = img.height * sc;
+        cx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+        blob = await new Promise(function (res) { cv.toBlob(res, 'image/jpeg', q); });
+        if (!blob || blob.size <= 195 * 1024) break;
+        if (q > 0.55) q -= 0.15; else size = Math.round(size * 0.75);
+      }
+      if (!blob) throw new Error('图片处理失败，请换一张图片重试。');
+      if (blob.size > 200 * 1024) throw new Error('图片压缩后仍超过 200KB，请换一张更小的图片。');
+      return { mime: 'image/jpeg', dataBase64: bytesToB64(new Uint8Array(await blob.arrayBuffer())) };
+    } finally { URL.revokeObjectURL(url); }
+  }
   function showCampForm(camp) {
     var box = $('#campFormBox'); if (!box) return;
     var editing = !!camp;
+    var campAvatarPayload; // undefined=不改动；{mime,dataBase64}=换图（移除走复选框）
     box.innerHTML = '<form class="stack wide" id="campForm" style="margin-top:14px;border-top:1px solid var(--line-soft);padding-top:14px;">' +
       '<strong>' + (editing ? (camp.status === 'rejected' ? '修改并重新提交' : '编辑营地') : '创建营地') + '</strong>' +
       '<label>营地名称（最多 30 字，全网唯一）<input name="name" required maxlength="30" value="' + esc(editing ? camp.name || '' : '') + '"></label>' +
       '<label>营地简介（最多 200 字）<textarea name="description" rows="3" maxlength="200">' + esc(editing ? camp.description || '' : '') + '</textarea></label>' +
-      '<p class="muted small" style="margin:0;">提交后先经机器人审核：通过即生效；疑似违规会进入人工审核；明显违规将被驳回并显示原因大类。每位用户最多创建 3 个营地（站长不受此限制）。</p>' +
+      '<label>营地头像（可选，支持 PNG、JPG、WebP、GIF，大图自动压缩）<input type="file" id="campAvatarFile" accept="image/png,image/jpeg,image/webp,image/gif"></label>' +
+      (editing && camp.avatarUrl ? '<label class="switch-row"><input type="checkbox" id="campAvatarRemove"> 移除当前头像</label>' : '') +
+      '<div class="camp-form-avprev" id="campAvatarPrev">' + (editing && camp.avatarUrl ? '<span class="muted small">当前头像：</span>' + campAvatarSlotHtml(camp, 48) : '') + '</div>' +
+      '<p class="muted small" style="margin:0;">提交后先经机器人审核：通过即生效；疑似违规会进入人工审核；明显违规将被驳回并显示原因大类。头像修改与改名一起审核。每位用户最多创建 3 个营地（站长不受此限制）。</p>' +
       '<div class="err" id="campFormErr"></div><div class="ok" id="campFormOk"></div>' +
       '<span class="row"><button class="primary" type="submit">' + (editing ? '提交' : '创建营地') + '</button><button class="ghost" type="button" id="campFormCancel">取消</button></span></form>';
+    fillCampAvatars(box);
     $('#campFormCancel').addEventListener('click', function () { box.innerHTML = ''; });
+    var avFile = $('#campAvatarFile');
+    if (avFile) avFile.addEventListener('change', async function () {
+      var err = $('#campFormErr'); err.textContent = '';
+      campAvatarPayload = undefined;
+      var prev = $('#campAvatarPrev');
+      if (!avFile.files || !avFile.files[0]) { if (prev) prev.innerHTML = ''; return; }
+      try {
+        campAvatarPayload = await processCampAvatarFile(avFile.files[0]);
+        if (prev) prev.innerHTML = '<span class="muted small">新头像预览：</span><img alt="新头像预览" src="' + URL.createObjectURL(avFile.files[0]) + '">';
+      } catch (e) {
+        err.textContent = (e && e.message) || '头像处理失败，请换一张图片。';
+        avFile.value = '';
+      }
+    });
     $('#campForm').addEventListener('submit', async function (ev) {
       ev.preventDefault();
       var fd = new FormData(ev.target);
       var payload = { name: String(fd.get('name')).trim(), description: String(fd.get('description')).trim() };
+      if (campAvatarPayload) payload.avatar = campAvatarPayload;
+      else { var rm = $('#campAvatarRemove'); if (rm && rm.checked) payload.avatar = null; }
       var err = $('#campFormErr'), ok = $('#campFormOk'); err.textContent = ''; ok.textContent = '';
       var r = editing
         ? await api('/forum/camps/' + encodeURIComponent(camp.id) + '/edit', { method: 'POST', body: payload })
@@ -1166,11 +1322,13 @@
       var acts = '';
       if (c.status === 'active' || c.status === 'rejected') acts += '<button class="mini-btn brand" type="button" data-campedit="' + esc(c.id) + '">' + (c.status === 'rejected' ? '修改并重新提交' : '编辑') + '</button>';
       if (c.status === 'pending' || c.status === 'rejected') acts += '<button class="mini-btn danger" type="button" data-campdel="' + esc(c.id) + '">删除</button>';
-      return '<div class="item"><span class="grow"><a href="#/forum/camp/' + esc(c.id) + '"><strong>' + esc(c.name) + '</strong></a> ' + campStatusTag(c) +
+      return '<div class="item">' + campAvatarSlotHtml(c, 34) + '<span class="grow"><a href="#/forum/camp/' + esc(c.id) + '"><strong>' + esc(c.name) + '</strong></a> ' + campStatusTag(c) +
         (c.hasPendingEdit ? ' <span class="tag blue">有修改待审核</span>' : '') +
+        (c.hasPendingAvatar ? ' <span class="tag blue">头像修改待审核</span>' : '') +
         '<br><span class="muted small">' + esc(c.description || '') + '<br>成员 ' + esc(c.memberCount || 0) + ' · 帖子 ' + esc(c.postCount || 0) + '</span></span>' +
         (acts ? '<span class="row" style="gap:2px;">' + acts + '</span>' : '') + '</div>';
     }).join('') + '</div>';
+    fillCampAvatars(box);
     box.querySelectorAll('[data-campedit]').forEach(function (b) { b.addEventListener('click', function () {
       var c = camps.filter(function (x) { return String(x.id) === b.getAttribute('data-campedit'); })[0];
       var fb = $('#campFormBox'); if (fb && fb.scrollIntoView) fb.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1192,7 +1350,7 @@
     var posts = (r.data && r.data.posts) || [];
     var mine = loggedIn() && c.creator && c.creator.userId != null && Number(c.creator.userId) === Number(myUserId());
     view.innerHTML = '<div class="card"><p style="margin-top:0;"><a href="#/forum">← 返回论坛</a></p>' +
-      '<div class="row"><span class="brand-mark" style="width:44px;height:44px;border-radius:12px;font-size:16px;background:linear-gradient(120deg,#1d4ed8,#38bdf8);">营</span>' +
+      '<div class="row"><span class="camp-head-av">' + (c.avatarUrl ? campAvatarSlotHtml(c, 44) : '<span class="brand-mark" style="width:44px;height:44px;border-radius:12px;font-size:16px;background:linear-gradient(120deg,#1d4ed8,#38bdf8);">营</span>') + '</span>' +
       '<span class="grow"><strong style="font-size:19px;">' + esc(c.name || '营地') + '</strong> ' + campStatusTag(c) + '<br>' +
       '<span class="muted small">成员 ' + esc(c.memberCount || 0) + ' · 帖子 ' + esc(c.postCount || 0) + (c.creator && c.creator.displayName ? ' · 创建者 ' + esc(c.creator.displayName) : '') + '</span></span></div>' +
       (c.description ? '<p style="margin:12px 0 0;">' + esc(c.description) + '</p>' : '') +
@@ -1204,6 +1362,7 @@
       '</p><div id="campFormBox"></div></div>' +
       '<div class="card"><h2>营地帖子</h2><div>' + (posts.length ? posts.map(postItemHtml).join('') : '<p class="empty">暂无帖子。</p>') + '</div></div>';
     fillAvatars(view);
+    fillCampAvatars(view);
     var jb = $('#campJoinBtn');
     if (jb) jb.addEventListener('click', async function () {
       var rr = await api('/forum/camps/' + encodeURIComponent(campId) + '/join', { method: 'POST', body: { joined: !c.joined } });
