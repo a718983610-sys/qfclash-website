@@ -815,13 +815,147 @@
     var bm = boardMeta(p.board || '');
     var av = aid ? avatarSlotHtml(aid, '', true, aname, 38) : '<span class="avatar-ph" style="width:38px;height:38px;">' + esc(aname.slice(0, 1)) + '</span>';
     var hot = Number(p.likeCount || 0) >= 50 ? '<span class="tag hot">热门</span>' : '';
-    return '<div class="post-row"><div class="post-main">' +
+    var liked = !!p.likedByMe;
+    return '<div class="post-row" data-post="' + esc(p.id) + '"><div class="post-main">' +
       '<div class="post-top">' + av + '<span class="post-who"><a class="post-name" href="#/forum/user/' + esc(aid) + '">' + esc(aname) + '</a>' +
-      '<span class="post-sub">' + esc(relTime(p.createdAt)) + ' · ' + esc(bm.name) + '</span></span>' + hot + '</div>' +
+      '<span class="post-sub">' + esc(relTime(p.createdAt)) + ' · <a class="post-board" href="#/forum" data-card-board="' + esc(p.board || '') + '">' + esc(bm.name) + '</a></span></span>' + hot + '</div>' +
       '<a class="post-title" href="#/forum/post/' + esc(p.id) + '">' + esc(p.title || '(无标题)') + '</a>' + postStatusTag(p) +
       (excerpt ? '<div class="post-excerpt">' + esc(excerpt) + '</div>' : '') +
-      '<div class="post-stats"><span class="ps">' + ico('heart', 15) + esc(p.likeCount || 0) + '</span><span class="ps">' + ico('reply', 15) + esc(p.replyCount || 0) + '</span><span class="ps">' + ico('eye', 15) + esc(p.viewCount || 0) + '</span></div>' +
+      '<div class="post-stats">' +
+      '<button type="button" class="ps ps-act' + (liked ? ' liked' : '') + '" data-like-btn aria-pressed="' + (liked ? 'true' : 'false') + '" aria-label="点赞">' + ico('heart', 15) + '<span data-like-count>' + esc(p.likeCount || 0) + '</span></button>' +
+      '<button type="button" class="ps ps-act" data-cmt-btn aria-label="评论">' + ico('reply', 15) + '<span data-reply-count>' + esc(p.replyCount || 0) + '</span></button>' +
+      '<span class="ps">' + ico('eye', 15) + esc(p.viewCount || 0) + '</span></div>' +
+      '<div class="post-cmtbox" data-cmtbox hidden></div>' +
+      '<div class="post-note" data-card-note role="status"></div>' +
       '</div><div class="post-cover bc-' + bm.cls + '" aria-hidden="true">' + ico(bm.ico, 30) + '</div></div>';
+  }
+  // ---------- 帖子卡交互（ui3）：整卡进详情＋列表内点赞/评论 ----------
+  // 事件委托只挂一次（document 级），页面重渲染不丢绑定；卡片由 postItemHtml
+  // 渲染（论坛流/首页流/营地帖/个人主页/数据分析共用），带 data-post 标记。
+  // 卡内独立元素各自拦截：点赞钮、评论钮、评论区、板块标签、作者头像/昵称、
+  // 标题链接与其余 a/button/表单控件保持原行为，不触发整卡跳转。
+  function cardNote(card, msg, ok) {
+    var n = card.querySelector('[data-card-note]');
+    if (!n) return;
+    n.textContent = msg || '';
+    n.className = 'post-note ' + (ok ? 'ok' : 'err');
+  }
+  async function toggleCardLike(card, btn) {
+    if (!loggedIn()) { location.hash = '#/login'; return; }
+    if (btn.disabled) return;
+    var cnt = btn.querySelector('[data-like-count]');
+    var was = btn.classList.contains('liked');
+    var prev = cnt ? parseInt(cnt.textContent, 10) : NaN;
+    if (!isFinite(prev)) prev = 0;
+    // 乐观更新；失败按服务端回包前状态回滚
+    btn.disabled = true;
+    btn.classList.toggle('liked', !was);
+    btn.setAttribute('aria-pressed', String(!was));
+    if (cnt) cnt.textContent = String(Math.max(0, prev + (was ? -1 : 1)));
+    var rr = await api('/forum/posts/' + encodeURIComponent(card.getAttribute('data-post')) + '/like', { method: 'POST', body: { liked: !was } });
+    btn.disabled = false;
+    if (rr.ok && rr.data) {
+      if (typeof rr.data.likeCount === 'number' && cnt) cnt.textContent = String(rr.data.likeCount);
+      if (typeof rr.data.liked === 'boolean') { btn.classList.toggle('liked', rr.data.liked); btn.setAttribute('aria-pressed', String(rr.data.liked)); }
+      cardNote(card, '', true);
+    } else {
+      btn.classList.toggle('liked', was);
+      btn.setAttribute('aria-pressed', String(was));
+      if (cnt) cnt.textContent = String(prev);
+      cardNote(card, rr.message || '点赞失败，请稍后重试。', false);
+    }
+  }
+  function toggleCardComment(card) {
+    var box = card.querySelector('[data-cmtbox]');
+    if (!box) return;
+    if (!box.getAttribute('data-built')) {
+      box.setAttribute('data-built', '1');
+      if (loggedIn()) {
+        box.innerHTML = '<form class="cmt-form" data-cmt-form>' +
+          '<textarea rows="2" maxlength="2000" placeholder="写下你的评论…" aria-label="评论内容"></textarea>' +
+          '<div class="cmt-bar"><span class="muted small grow">评论将公开展示，请友善发言。</span>' +
+          '<button class="ghost" type="button" data-cmt-cancel>收起</button>' +
+          '<button class="primary" type="submit">发送评论</button></div>' +
+          '<div class="err small" data-cmt-err role="alert"></div></form>';
+      } else {
+        box.innerHTML = '<p class="muted small" style="margin:2px 0;">登录后即可评论。<a href="#/login">去登录</a></p>';
+      }
+    }
+    box.hidden = !box.hidden;
+    if (!box.hidden) { var ta = box.querySelector('textarea'); if (ta) ta.focus(); }
+  }
+  async function submitCardComment(card) {
+    var box = card.querySelector('[data-cmtbox]');
+    var form = box ? box.querySelector('[data-cmt-form]') : null;
+    if (!form) return;
+    var ta = form.querySelector('textarea');
+    var err = form.querySelector('[data-cmt-err]');
+    var content = String(ta.value || '').trim();
+    if (!content) { err.textContent = '请先写下评论内容。'; ta.focus(); return; }
+    var sendBtn = form.querySelector('button[type="submit"]');
+    if (sendBtn.disabled) return;
+    sendBtn.disabled = true; sendBtn.textContent = '发送中…';
+    var rr = await api('/forum/posts/' + encodeURIComponent(card.getAttribute('data-post')) + '/replies', { method: 'POST', body: { content: content } });
+    sendBtn.disabled = false; sendBtn.textContent = '发送评论';
+    if (!rr.ok) { err.textContent = rr.message || '评论失败，请稍后重试。'; return; }
+    var d = rr.data || {};
+    if (d.status === 'rejected') { err.textContent = d.message || '评论未通过审核，请修改后重新发布。'; return; }
+    ta.value = ''; err.textContent = '';
+    box.hidden = true;
+    // 列表回复数只统计已发布评论：pending 待审先不计数（与服务端回包口径一致）
+    if (d.status === 'published' || !d.status) {
+      var rc = card.querySelector('[data-reply-count]');
+      if (rc) { var n = parseInt(rc.textContent, 10); rc.textContent = String((isFinite(n) ? n : 0) + 1); }
+    }
+    cardNote(card, d.message || '评论已发表。', true);
+  }
+  var postCardsBound = false;
+  function bindPostCards() {
+    if (postCardsBound) return;
+    postCardsBound = true;
+    document.addEventListener('click', function (e) {
+      var t = e.target;
+      if (!t || typeof t.closest !== 'function') return;
+      // 外站精选卡：整卡打开原文（站内无点赞/评论接口）；标题链接自身行为不拦截
+      var ext = t.closest('.post-row[data-ext]');
+      if (ext) {
+        if (!t.closest('a, button, input, textarea, select, label')) {
+          window.open(ext.getAttribute('data-ext'), '_blank', 'noopener');
+        }
+        return;
+      }
+      var card = t.closest('.post-row[data-post]');
+      if (!card) return;
+      var box = t.closest('[data-cmtbox]');
+      if (box && card.contains(box)) {
+        if (t.closest('[data-cmt-cancel]')) box.hidden = true;
+        return; // 评论区内点击一律不进详情
+      }
+      var likeBtn = t.closest('[data-like-btn]');
+      if (likeBtn && card.contains(likeBtn)) { toggleCardLike(card, likeBtn); return; }
+      var cmtBtn = t.closest('[data-cmt-btn]');
+      if (cmtBtn && card.contains(cmtBtn)) { toggleCardComment(card); return; }
+      var boardLink = t.closest('[data-card-board]');
+      if (boardLink && card.contains(boardLink)) {
+        e.preventDefault();
+        forumState.board = boardLink.getAttribute('data-card-board') || '';
+        forumState.tab = 'home'; forumState.campId = '';
+        var r = route();
+        if (r.name === 'forum' && !r.arg) pageForum(r); else location.hash = '#/forum';
+        return;
+      }
+      var av = t.closest('[data-avatar-uid]');
+      if (av && card.contains(av)) { location.hash = '#/forum/user/' + encodeURIComponent(av.getAttribute('data-avatar-uid')); return; }
+      if (t.closest('a, button, input, textarea, select, label, form')) return;
+      location.hash = '#/forum/post/' + encodeURIComponent(card.getAttribute('data-post'));
+    });
+    document.addEventListener('submit', function (e) {
+      var form = e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-cmt-form]') : null;
+      if (!form) return;
+      e.preventDefault();
+      var card = form.closest('.post-row[data-post]');
+      if (card) submitCardComment(card);
+    });
   }
   async function pageForum(r) {
     if (r.arg === 'user' && r.sub) return forumUserPage(r.sub);
@@ -971,7 +1105,7 @@
           (x.summary || x.excerpt ? '<span class="ef-excerpt">' + esc(x.summary || x.excerpt) + '</span>' : '') +
           '<span class="ef-meta">' + extMeta(x, src) + '</span></span></a>';
       }
-      return '<div class="post-row"><div class="post-main"><span class="tag blue">' + esc(src) + '</span> ' +
+      return '<div class="post-row" data-ext="' + esc(url) + '"><div class="post-main"><span class="tag blue">' + esc(src) + '</span> ' +
         '<a class="post-title" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + esc(x.title || '(无标题)') + '</a>' +
         (x.summary || x.excerpt ? '<div class="post-excerpt">' + esc(x.summary || x.excerpt) + '</div>' : '') +
         '<div class="post-stats">' + extMeta(x, src) + '</div>' +
@@ -2524,6 +2658,7 @@
   }
 
   // ---------- 启动 ----------
+  bindPostCards(); // ui3：帖子卡整卡点击/列表点赞评论的 document 级事件委托（只挂一次）
   renderIdentity();
   probeOwner();
   render();

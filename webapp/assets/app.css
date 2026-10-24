@@ -216,6 +216,26 @@ a.post-title:hover { color: var(--brand); text-decoration: none; }
 .post-stats .ps { display: inline-flex; align-items: center; gap: 5px; }
 .post-stats .ps svg { opacity: .75; }
 .post-stats .ps-right { margin-left: auto; }
+/* ui3：帖子卡整卡可点＋列表内点赞/评论 */
+.post-row[data-post], .post-row[data-ext] { cursor: pointer; }
+.post-board { color: inherit; }
+.post-board:hover { color: var(--brand); }
+.post-stats button.ps-act { background: none; border: 0; padding: 5px 9px; margin: -5px -4px; font: inherit; color: inherit; border-radius: 999px; transition: background .15s, color .15s; }
+.post-stats button.ps-act:hover { background: #eef3fc; color: var(--brand); }
+.post-stats button.ps-act:active { transform: scale(.94); }
+.post-stats button.ps-act.liked { color: var(--hot); }
+.post-stats button.ps-act.liked svg { fill: var(--hot); stroke: var(--hot); opacity: 1; }
+.post-cmtbox { margin-top: 10px; border-top: 1px solid var(--line-soft); padding-top: 10px; cursor: default; }
+.post-cmtbox textarea { width: 100%; resize: vertical; }
+.cmt-bar { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.cmt-bar .grow { flex: 1; }
+.cmt-bar .primary { padding: 7px 16px; }
+.cmt-form [data-cmt-err] { margin-top: 6px; }
+.cmt-form [data-cmt-err]:empty { display: none; margin: 0; }
+.post-note { font-size: 12.5px; margin-top: 8px; }
+.post-note:empty { display: none; }
+.post-note.ok { color: var(--ok); }
+.post-note.err { color: var(--danger); }
 .post-cover { width: 108px; height: 84px; border-radius: 13px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; color: rgba(255, 255, 255, .92); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), inset 0 -14px 24px rgba(10, 20, 60, .14); align-self: center; }
 .post-cover svg { filter: drop-shadow(0 3px 6px rgba(10, 20, 60, .25)); }
 
