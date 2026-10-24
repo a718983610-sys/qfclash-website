@@ -102,10 +102,11 @@
   }
 
   // 站长绿标（2026-10-24 用户亲定）：站长账号在各处名字旁带绿色「站长」
-  // 小徽标。判断口径：用户视图带 is_owner/isOwner 字段时以字段为准（服务端
-  // 绿标字段上线后同口径）；只带用户 ID 的视图按站长账号固定 ID 15 兜底
-  // （站长账号全站唯一）。
-  function ownerFlagOf(o) { return !!(o && (o.is_owner || o.isOwner)); }
+  // 小徽标。判断口径（2026-10-24 服务端定版）：优先认 ownerBadge 字段
+  // （'green' | null，登录回包 user、/profile、公开资料视图同口径）；
+  // 旧字段 is_owner/isOwner 作兜底；只带用户 ID 的视图按站长账号固定
+  // ID 15 兜底（站长账号全站唯一）。
+  function ownerFlagOf(o) { return !!(o && (o.ownerBadge === 'green' || o.is_owner || o.isOwner)); }
   function ownerBadgeHtml(userId, flag) {
     return (flag || Number(userId) === 15) ? '<span class="owner-badge">站长</span>' : '';
   }
