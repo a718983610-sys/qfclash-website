@@ -2596,13 +2596,14 @@
     if (!ownerState) return ownerDenied();
     if (r.arg === 'user' && r.sub) return pageOwnerUser(Number(r.sub));
     if (r.arg === 'reviews') return pageOwnerReviews();
+    if (r.arg === 'redeem') return pageOwnerRedeem();
     if (r.arg === 'audit') return pageOwnerAudit();
     return pageOwnerUsers(r);
   }
 
   async function pageOwnerUsers(r) {
     view.innerHTML = '<div class="card"><h2>站长管理台 · 用户管理</h2>' +
-      '<p class="row wrap"><a class="ghost" href="#/owner/reviews">审核队列</a><a class="ghost" href="#/owner/audit">管理审计</a></p>' +
+      '<p class="row wrap"><a class="ghost" href="#/owner/reviews">审核队列</a><a class="ghost" href="#/owner/redeem">兑换审核</a><a class="ghost" href="#/owner/audit">管理审计</a></p>' +
       '<form id="ownSearch" class="row wrap" style="margin-top:10px;"><select id="ownBy"><option value="username">按账户 ID</option><option value="email">按邮箱</option></select>' +
       '<input id="ownQ" type="text" placeholder="输入账户 ID 或邮箱（支持开头匹配）" style="flex:1;min-width:180px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;">' +
       '<button class="primary" type="submit">搜索</button></form>' +
@@ -2962,6 +2963,134 @@
     if (!r.ok) { box.innerHTML = '<p class="muted">加载失败。</p>'; return; }
     var rows = (r.data.audit || []).map(function (x) { return '<tr><td>' + esc(fmtTs(x.createdAt)) + '</td><td>' + esc(x.action) + '</td><td>' + esc(x.targetType || '') + ' ' + esc(x.targetId || '') + '</td><td>' + esc(x.detail || '') + '</td></tr>'; }).join('');
     box.innerHTML = rows ? '<table class="kv"><tr><td>时间</td><td>动作</td><td>对象</td><td>摘要</td></tr>' + rows + '</table>' : '<p class="muted">暂无管理操作记录。</p>';
+  }
+
+  // ---------- 兑换审核（站长发奖，2026-10-24 用户亲定新页） ----------
+  // 契约（服务端线提供，前端按此对接）：
+  //   GET  /owner/reviews/redeem            队列，前端按状态分「待审核」「待发放」两组
+  //   POST /owner/reviews/redeem/:id/review { decision:'approve'|'reject', reason?, confirm:true }
+  //   POST /owner/reviews/redeem/:id/paid   { confirm:true }（实际发放完成后标记）
+  // 状态文案与用户端「我的兑换」共用 ORDER_STATUS，不另造词；确认弹窗一律走
+  // ownerConfirm（单步「确认无误」、不输密码）。驳回须填原因，退分由服务端按
+  // 既有口径处理。字段名对回包做驼峰/下划线双口径兜底，待服务端联调时对齐。
+  var PAYOUT_METHOD_LABEL = { usdt: 'USDT', USDT: 'USDT', gift_card: '兑换码', giftcard: '兑换码', code: '兑换码', redeem_code: '兑换码', choice: '自选', custom: '自选' };
+  function redeemField(o, keys) { for (var i = 0; i < keys.length; i++) { if (o[keys[i]] != null && o[keys[i]] !== '') return o[keys[i]]; } return ''; }
+  function redeemOrderView(o) {
+    return {
+      id: o.id,
+      nickname: redeemField(o, ['nickname', 'userNickname', 'user_nickname']),
+      username: redeemField(o, ['username', 'userName', 'user_username', 'accountId']),
+      userId: redeemField(o, ['userId', 'user_id']),
+      product: redeemField(o, ['productName', 'product_name']) || '兑换商品',
+      points: redeemField(o, ['pricePoints', 'price_points']),
+      methodRaw: redeemField(o, ['payoutMethod', 'payout_method', 'method', 'choice']),
+      address: redeemField(o, ['payoutAddress', 'payout_address', 'payoutAddressMasked']),
+      email: redeemField(o, ['payoutEmail', 'payout_email', 'payoutEmailMasked']),
+      status: o.status || '',
+      createdAt: redeemField(o, ['createdAt', 'created_at']),
+      reason: redeemField(o, ['rejectReason', 'reject_reason', 'reason']),
+      note: redeemField(o, ['note', 'remark'])
+    };
+  }
+  function payoutMethodLabel(v) { return PAYOUT_METHOD_LABEL[v.methodRaw] || v.methodRaw || '—'; }
+  function redeemTargetText(v) {
+    if (v.address && v.email) return v.address + ' / ' + v.email;
+    return v.address || v.email || '—';
+  }
+  function redeemTimeText(v) {
+    var t = v.createdAt;
+    if (typeof t === 'string' && isNaN(Number(t))) { var ms = Date.parse(t); return isNaN(ms) ? t : fmtTs(ms / 1000); }
+    return fmtTs(t);
+  }
+  function redeemDetailHtml(v) {
+    var rows = [
+      ['订单号', '#' + esc(v.id)],
+      ['下单人', esc(v.nickname || '—') + (v.username ? '（' + esc(v.username) + '）' : '') + (v.userId ? ' · 用户 ' + esc(v.userId) : '')],
+      ['商品', esc(v.product)],
+      ['积分', esc(v.points) + ' 分'],
+      ['发放方式', esc(payoutMethodLabel(v))],
+      ['USDT 地址', esc(v.address || '—')],
+      ['接收邮箱', esc(v.email || '—')],
+      ['状态', esc(ORDER_STATUS[v.status] || v.status)],
+      ['下单时间', esc(redeemTimeText(v))]
+    ];
+    if (v.reason) rows.push(['驳回原因', esc(v.reason)]);
+    if (v.note) rows.push(['备注', esc(v.note)]);
+    return kvTable(rows);
+  }
+  function showRedeemDetail(v) {
+    var ov = el('<div class="own-overlay"><div class="own-dialog" role="dialog" aria-modal="true"><h3>兑换订单 #' + esc(v.id) + ' 详情</h3>' + redeemDetailHtml(v) + '<div class="row-end"><button type="button" class="primary" data-act="close">关闭</button></div></div></div>');
+    document.body.appendChild(ov);
+    function close() { ov.remove(); }
+    ov.addEventListener('click', function (ev) { if (ev.target === ov) close(); });
+    ov.querySelector('[data-act="close"]').addEventListener('click', close);
+  }
+  async function pageOwnerRedeem() {
+    view.innerHTML = '<div class="card"><p><a href="#/owner">‹ 返回用户列表</a> · <a href="#/owner/reviews">审核队列</a> · <a href="#/owner/audit">管理审计</a></p><h2>兑换审核</h2>' +
+      '<p class="muted small">在此审核积分兑换订单并发放奖励：审核通过后订单进入「待发放」，实际发放完成后点「标记已发放」；驳回须填写原因，积分将退回用户账户。处理结果记录在管理审计中。</p>' +
+      '<div id="ownRedeemBody"><p class="muted">正在加载…</p></div></div>';
+    loadOwnerRedeemSafe();
+  }
+  async function loadOwnerRedeemSafe() {
+    try { await loadOwnerRedeem(); } catch (e) {
+      if (window.console && console.error) console.error(e);
+      var body = $('#ownRedeemBody'); if (!body) return;
+      body.innerHTML = '<p class="muted">兑换队列加载出错，请重试。</p><p><button class="ghost" id="ownRedeemRetry" type="button">重试</button></p>';
+      var b = $('#ownRedeemRetry');
+      if (b) b.addEventListener('click', loadOwnerRedeemSafe);
+    }
+  }
+  async function loadOwnerRedeem() {
+    var body = $('#ownRedeemBody'); if (!body) return;
+    body.innerHTML = '<p class="muted">正在加载…</p>';
+    var r = await api('/owner/reviews/redeem');
+    if (!r.ok) {
+      body.innerHTML = '<p class="muted">加载失败' + (r.message ? '：' + esc(r.message) : '') + '。</p><p><button class="ghost" id="ownRedeemRetry" type="button">重试</button></p>';
+      var rb = $('#ownRedeemRetry'); if (rb) rb.addEventListener('click', loadOwnerRedeemSafe);
+      return;
+    }
+    var raw = Array.isArray(r.data) ? r.data : ((r.data && (r.data.orders || r.data.items || r.data.redeem)) || []);
+    var list = raw.map(redeemOrderView);
+    var pending = list.filter(function (v) { return v.status === 'pending_review'; });
+    var payout = list.filter(function (v) { return v.status === 'pending_payout'; });
+    function rowHtml(v, acts) {
+      return '<div class="item"><span class="grow"><strong>' + esc(v.product) + '</strong>（#' + esc(v.id) + '，' + esc(v.points) + ' 积分）<br>' +
+        '<span class="muted small">' + esc(v.nickname || '—') + (v.username ? '（' + esc(v.username) + '）' : '') + ' · ' + esc(payoutMethodLabel(v)) + ' · ' + esc(redeemTargetText(v)) + ' · ' + esc(ORDER_STATUS[v.status] || v.status) + ' · ' + esc(redeemTimeText(v)) + '</span></span></div>' +
+        reviewButtons(acts);
+    }
+    body.innerHTML = '<h3>待审核（' + pending.length + '）</h3>' + (pending.length ? pending.map(function (v) {
+      return rowHtml(v, '<button class="ghost" data-rdetail="' + esc(v.id) + '">详情</button><button class="primary" data-rapprove="' + esc(v.id) + '">通过</button><button class="ghost" data-rreject="' + esc(v.id) + '">驳回</button>');
+    }).join('') : '<p class="muted">暂无待审核订单。</p>') +
+    '<h3>待发放（' + payout.length + '）</h3>' + (payout.length ? payout.map(function (v) {
+      return rowHtml(v, '<button class="ghost" data-rdetail="' + esc(v.id) + '">详情</button><button class="primary" data-rpaid="' + esc(v.id) + '">标记已发放</button>');
+    }).join('') : '<p class="muted">暂无待发放订单。</p>');
+    var byId = {}; list.forEach(function (v) { byId[v.id] = v; });
+    body.querySelectorAll('[data-rdetail]').forEach(function (b) { b.addEventListener('click', function () { var v = byId[b.getAttribute('data-rdetail')]; if (v) showRedeemDetail(v); }); });
+    body.querySelectorAll('[data-rapprove]').forEach(function (b) { b.addEventListener('click', async function () {
+      var v = byId[b.getAttribute('data-rapprove')]; if (!v) return;
+      var f = await ownerConfirm({ title: '通过兑换订单 #' + v.id, body: '您将通过该兑换订单：' + v.product + '（' + v.points + ' 积分），下单人 ' + (v.nickname || v.username || v.userId) + '。通过后订单进入「待发放」。' });
+      if (!f) return;
+      f.decision = 'approve';
+      var rr = await ownerDo('/owner/reviews/redeem/' + encodeURIComponent(v.id) + '/review', f, '已通过，订单进入待发放。');
+      if (rr) loadOwnerRedeemSafe();
+    }); });
+    body.querySelectorAll('[data-rreject]').forEach(function (b) { b.addEventListener('click', async function () {
+      var v = byId[b.getAttribute('data-rreject')]; if (!v) return;
+      var f = await ownerConfirm({ title: '驳回兑换订单 #' + v.id, danger: true, body: '您将驳回该兑换订单：' + v.product + '（' + v.points + ' 积分），下单人 ' + (v.nickname || v.username || v.userId) + '。驳回后积分将退回该用户账户。',
+        fieldsHtml: '<label for="fRejectReason">驳回原因（将向用户展示）</label><input id="fRejectReason" type="text" maxlength="200">',
+        collect: function (ov) { var reason = ov.querySelector('#fRejectReason').value.trim(); if (!reason) { alert('请填写驳回原因。'); return null; } return { reason: reason }; } });
+      if (!f) return;
+      f.decision = 'reject';
+      var rr = await ownerDo('/owner/reviews/redeem/' + encodeURIComponent(v.id) + '/review', f, '已驳回，积分将退回用户账户。');
+      if (rr) loadOwnerRedeemSafe();
+    }); });
+    body.querySelectorAll('[data-rpaid]').forEach(function (b) { b.addEventListener('click', async function () {
+      var v = byId[b.getAttribute('data-rpaid')]; if (!v) return;
+      var f = await ownerConfirm({ title: '标记已发放 #' + v.id, body: '请确认您已实际完成发放：' + v.product + '，发放方式 ' + payoutMethodLabel(v) + '，' + redeemTargetText(v) + '。标记后订单状态变为「已发放」。' });
+      if (!f) return;
+      var rr = await ownerDo('/owner/reviews/redeem/' + encodeURIComponent(v.id) + '/paid', f, '已标记为已发放。');
+      if (rr) loadOwnerRedeemSafe();
+    }); });
   }
 
   // ---------- 启动 ----------
