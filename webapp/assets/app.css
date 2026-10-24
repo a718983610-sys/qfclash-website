@@ -487,3 +487,5 @@ a.cit-board:hover { color: var(--brand); text-decoration: none; }
 a.rank-name:hover { color: var(--brand); text-decoration: none; }
 .rank-meta { color: var(--faint); font-size: 12px; }
 .rank-join { padding: 6px 14px; flex: 0 0 auto; }
+/* 站长绿标（2026-10-24）：站长账号名字旁的绿色小徽标，克制小号胶囊 */
+.owner-badge { display: inline-block; vertical-align: middle; margin-left: 5px; padding: 0 5px; border-radius: 999px; background: #059669; color: #fff; font-size: 10px; font-weight: 600; line-height: 16px; letter-spacing: .03em; white-space: nowrap; }

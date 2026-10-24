@@ -100,6 +100,15 @@
     var me = meBasic();
     return nameOrFallback(me.nickname, me.username);
   }
+
+  // 站长绿标（2026-10-24 用户亲定）：站长账号在各处名字旁带绿色「站长」
+  // 小徽标。判断口径：用户视图带 is_owner/isOwner 字段时以字段为准（服务端
+  // 绿标字段上线后同口径）；只带用户 ID 的视图按站长账号固定 ID 15 兜底
+  // （站长账号全站唯一）。
+  function ownerFlagOf(o) { return !!(o && (o.is_owner || o.isOwner)); }
+  function ownerBadgeHtml(userId, flag) {
+    return (flag || Number(userId) === 15) ? '<span class="owner-badge">站长</span>' : '';
+  }
   // 登录类回包不带 nickname（服务端契约如此，不动以免影响 App）：登录后与
   // 启动时各补拉一次 GET /profile，用 effectiveNickname 回填会话存储。
   // 返回 true 表示本次补上了此前缺失的昵称（调用方据此决定是否重渲染）。
@@ -308,7 +317,7 @@
       if (!r.ok) { out.innerHTML = '<p class="err" style="margin-top:12px;">' + esc(r.message) + '</p>'; return; }
       var users = (r.data && r.data.users) || [];
       out.innerHTML = '<h3>搜索结果</h3>' + (users.length ? users.map(function (u) {
-        return '<div class="pane-item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><span class="pname">' + esc(nameOrFallback(u.nickname, u.username)) + '</span></span><button class="primary" data-ssadd="' + esc(u.userId) + '" type="button" style="padding:6px 13px;">添加好友</button></div>';
+        return '<div class="pane-item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><span class="pname">' + esc(nameOrFallback(u.nickname, u.username)) + ownerBadgeHtml(u.userId, ownerFlagOf(u)) + '</span></span><button class="primary" data-ssadd="' + esc(u.userId) + '" type="button" style="padding:6px 13px;">添加好友</button></div>';
       }).join('') : '<p class="muted small">未找到对应用户。请确认账户 ID 或邮箱无误（仅支持精确搜索）。</p>');
       fillAvatars(out);
       out.querySelectorAll('[data-ssadd]').forEach(function (b) { b.addEventListener('click', async function () {
@@ -328,7 +337,7 @@
     if (loggedIn()) {
       var me = meBasic();
       box.innerHTML = '<span id="drawerAvatar"><span class="avatar-ph">' + esc(myDisplayName().slice(0, 1)) + '</span></span>' +
-        '<span class="who"><span class="nick">' + esc(myDisplayName()) + '</span><br><span class="uid">' + esc(me.username ? '账户 ID：' + me.username : '') + '</span></span>';
+        '<span class="who"><span class="nick">' + esc(myDisplayName()) + ownerBadgeHtml(myUserId()) + '</span><br><span class="uid">' + esc(me.username ? '账户 ID：' + me.username : '') + '</span></span>';
       showAvatar($('#drawerAvatar'), '/profile/avatar', myAvatarVer, 44);
       btn.hidden = false;
     } else {
@@ -402,7 +411,7 @@
       '<div class="hero-title">欢迎使用 QFClash 网页版</div>' +
       '<div class="hero-sub">与客户端共用同一账号，好友、聊天、论坛、营地、积分与客服三端同步；连接、节点与订阅功能请使用客户端。</div>' +
       (loggedIn()
-        ? '<div class="hero-user"><span id="homeAvatar"><span class="avatar-ph">' + esc(myDisplayName().slice(0, 1)) + '</span></span><span><span class="hnick">' + esc(myDisplayName()) + '</span><br><span class="huid">' + (me.username ? '账户 ID：' + esc(me.username) : '') + '</span></span></div>' +
+        ? '<div class="hero-user"><span id="homeAvatar"><span class="avatar-ph">' + esc(myDisplayName().slice(0, 1)) + '</span></span><span><span class="hnick">' + esc(myDisplayName()) + ownerBadgeHtml(myUserId()) + '</span><br><span class="huid">' + (me.username ? '账户 ID：' + esc(me.username) : '') + '</span></span></div>' +
           '<div class="hero-cta"><a class="btn-white" href="#/forum">进入论坛</a><a class="btn-ghost-w" href="#/friends">好友与会话</a></div>'
         : '<div class="hero-cta"><a class="btn-white" href="#/login">登录</a><a class="btn-ghost-w" href="#/register">注册</a><a class="btn-ghost-w" href="#/forum">先逛论坛</a></div>') +
       '</div></div>' +
@@ -914,7 +923,7 @@
       '<div class="hero-title">论坛</div>' +
       '<div class="hero-sub">聊使用、提问题、说想法，也可以创建自己的主题营地。</div>' +
       '<div class="hero-user"><span id="forumAvatar"><span class="avatar-ph">' + esc(myDisplayName().slice(0, 1)) + '</span></span>' +
-      '<span><span class="hnick">' + esc(myDisplayName()) + '</span><br><span class="huid">账户 ID：' + esc(me.username || '—') + '</span></span></div>' +
+      '<span><span class="hnick">' + esc(myDisplayName()) + ownerBadgeHtml(myUserId()) + '</span><br><span class="huid">账户 ID：' + esc(me.username || '—') + '</span></span></div>' +
       '<div class="hero-cta"><a class="btn-ghost-w" href="#/me">个人资料</a></div></div></div>';
   }
   function forumTabsHtml(active) {
@@ -941,7 +950,7 @@
     var hot = Number(p.likeCount || 0) >= 50 ? '<span class="tag hot">热门</span>' : '';
     var liked = !!p.likedByMe;
     return '<div class="post-row" data-post="' + esc(p.id) + '"><div class="post-main">' +
-      '<div class="post-top">' + av + '<span class="post-who"><a class="post-name" href="#/forum/user/' + esc(aid) + '">' + esc(aname) + '</a>' +
+      '<div class="post-top">' + av + '<span class="post-who"><a class="post-name" href="#/forum/user/' + esc(aid) + '">' + esc(aname) + '</a>' + ownerBadgeHtml(aid, ownerFlagOf(p.author)) +
       '<span class="post-sub">' + esc(relTime(p.createdAt)) + ' · <a class="post-board" href="#/forum" data-card-board="' + esc(p.board || '') + '">' + esc(bm.name) + '</a></span></span>' + hot + '</div>' +
       '<a class="post-title" href="#/forum/post/' + esc(p.id) + '">' + esc(p.title || '(无标题)') + '</a>' + postStatusTag(p) +
       (excerpt ? '<div class="post-excerpt">' + esc(excerpt) + '</div>' : '') +
@@ -1126,7 +1135,7 @@
       '<div class="cit-tags">' + tags + postStatusTag(p) + '</div>' +
       '<a class="cit-ti" href="#/forum/post/' + esc(p.id) + '">' + esc(p.title || '(无标题)') + '</a>' +
       (excerpt ? '<div class="cit-ex">' + esc(excerpt) + '</div>' : '') +
-      '<div class="cit-au">' + av + '<a class="cit-an" href="#/forum/user/' + esc(aid) + '">' + esc(aname) + '</a><span class="faint">' + esc(relTime(p.createdAt)) + '</span>' +
+      '<div class="cit-au">' + av + '<a class="cit-an" href="#/forum/user/' + esc(aid) + '">' + esc(aname) + '</a>' + ownerBadgeHtml(aid, ownerFlagOf(p.author)) + '<span class="faint">' + esc(relTime(p.createdAt)) + '</span>' +
       '<a class="cit-board" href="#/forum" data-card-board="' + esc(p.board || '') + '">' + esc(bm.name) + '</a></div>' +
       '<div class="cit-mt">' +
       '<button type="button" class="ps ps-act' + (liked ? ' liked' : '') + '" data-like-btn aria-pressed="' + (liked ? 'true' : 'false') + '" aria-label="点赞">' + ico('heart', 13) + '<span data-like-count>' + esc(p.likeCount || 0) + '</span></button>' +
@@ -1161,7 +1170,7 @@
     box.innerHTML = '<div class="rank-list">' + camps.map(function (c, i) {
       return '<div class="rank-row"><span class="rk' + (i >= 3 ? ' dim' : '') + '">' + (i + 1) + '</span>' + campAvatarSlotHtml(c, 34) +
         '<span class="rank-main"><a class="rank-name" href="#/forum/camp/' + esc(c.id) + '">' + esc(c.name) + '</a>' +
-        '<span class="rank-meta">成员 ' + esc(c.memberCount || 0) + ' · 帖子 ' + esc(c.postCount || 0) + (c.creator && c.creator.displayName ? ' · ' + esc(c.creator.displayName) + ' 创建' : '') + '</span></span>' +
+        '<span class="rank-meta">成员 ' + esc(c.memberCount || 0) + ' · 帖子 ' + esc(c.postCount || 0) + (c.creator && c.creator.displayName ? ' · ' + esc(c.creator.displayName) + ownerBadgeHtml(c.creator.userId, ownerFlagOf(c.creator)) + ' 创建' : '') + '</span></span>' +
         (loggedIn() ? '<button class="ghost rank-join" data-joincamp="' + esc(c.id) + '" data-joined="' + (c.joined ? '1' : '') + '" type="button">' + (c.joined ? '已加入' : '加入') + '</button>' : '') + '</div>';
     }).join('') + '</div>';
     fillCampAvatars(box);
@@ -1476,7 +1485,7 @@
     view.innerHTML = '<div class="card"><p style="margin-top:0;"><a href="#/forum">← 返回论坛</a></p>' +
       '<div class="row"><span class="camp-head-av">' + (c.avatarUrl ? campAvatarSlotHtml(c, 44) : '<span class="brand-mark" style="width:44px;height:44px;border-radius:12px;font-size:16px;background:linear-gradient(120deg,#1d4ed8,#38bdf8);">营</span>') + '</span>' +
       '<span class="grow"><strong style="font-size:19px;">' + esc(c.name || '营地') + '</strong> ' + campStatusTag(c) + '<br>' +
-      '<span class="muted small">成员 ' + esc(c.memberCount || 0) + ' · 帖子 ' + esc(c.postCount || 0) + (c.creator && c.creator.displayName ? ' · 创建者 ' + esc(c.creator.displayName) : '') + '</span></span></div>' +
+      '<span class="muted small">成员 ' + esc(c.memberCount || 0) + ' · 帖子 ' + esc(c.postCount || 0) + (c.creator && c.creator.displayName ? ' · 创建者 ' + esc(c.creator.displayName) + ownerBadgeHtml(c.creator.userId, ownerFlagOf(c.creator)) : '') + '</span></span></div>' +
       (c.description ? '<p style="margin:12px 0 0;">' + esc(c.description) + '</p>' : '') +
       (r.data.closed ? '<p class="notice warnbox" style="margin-top:12px;">' + esc(r.data.message || '该营地已关闭。') + '</p>' : '') +
       '<p class="row wrap" style="margin:14px 0 0;">' +
@@ -1513,7 +1522,7 @@
     if (!r.ok) { view.innerHTML = '<div class="card"><h2>个人主页</h2><p class="err">' + esc(r.message) + '</p></div>'; return; }
     var d = r.data || {}, u = d.user || {}, st = d.stats || {};
     view.innerHTML = '<div class="profile-head"><div class="ph-cover"></div><div class="ph-body"><div class="ph-row"><span class="ph-avatar" id="fuAvatar"><span class="avatar-ph">' + esc((u.name || 'Q').slice(0, 1)) + '</span></span>' +
-      '<span><span class="ph-name">' + esc(nameOrFallback(u.name, u.username)) + '</span><br><span class="ph-sub">' + (u.joinedAt ? '加入于 ' + esc(fmtTs(u.joinedAt)) : '') + '</span></span></div>' +
+      '<span><span class="ph-name">' + esc(nameOrFallback(u.name, u.username)) + ownerBadgeHtml(userId, ownerFlagOf(u)) + '</span><br><span class="ph-sub">' + (u.joinedAt ? '加入于 ' + esc(fmtTs(u.joinedAt)) : '') + '</span></span></div>' +
       '<div class="ph-stats"><span><span class="n">' + esc(st.posts || 0) + '</span><br><span class="l">发帖</span></span><span><span class="n">' + esc(st.comments || 0) + '</span><br><span class="l">评价</span></span></div></div></div>' +
       '<div class="card"><h2>发布的帖子</h2><div class="list">' + ((d.posts || []).length ? d.posts.map(postItemHtml).join('') : '<p class="muted">暂无帖子。</p>') + '</div></div>' +
       '<div class="card"><h2>发表的评价</h2><div class="list">' + ((d.comments || []).length ? d.comments.map(function (c) {
@@ -1534,7 +1543,7 @@
     view.innerHTML = '<div class="card"><p style="margin-top:0;"><a href="#/forum">← 返回论坛</a></p>' +
       '<h2 style="font-size:23px;line-height:1.42;margin-bottom:12px;letter-spacing:.2px;">' + esc(p.title || '(无标题)') + postStatusTag(p) + '</h2>' +
       '<div class="post-author" style="font-size:13.5px;">' + avatarSlotHtml(authorId(p), '', true, authorName(p), 30) +
-      '<a href="#/forum/user/' + esc(authorId(p)) + '"><strong style="color:var(--ink);">' + esc(authorName(p)) + '</strong></a><span class="faint">' + esc(fmtTs(p.createdAt)) + '</span></div>' +
+      '<a href="#/forum/user/' + esc(authorId(p)) + '"><strong style="color:var(--ink);">' + esc(authorName(p)) + '</strong></a>' + ownerBadgeHtml(authorId(p), ownerFlagOf(p.author)) + '<span class="faint">' + esc(fmtTs(p.createdAt)) + '</span></div>' +
       '<div style="white-space:pre-wrap;word-break:break-word;line-height:1.75;margin-top:10px;">' + esc(p.content || '') + '</div>' +
       '<div class="post-stats" style="margin-top:16px;font-size:13px;"><span class="ps">' + ico('heart', 16) + '点赞 ' + esc(p.likeCount || 0) + '</span><span class="ps">' + ico('reply', 16) + '回复 ' + esc(p.replyCount != null ? p.replyCount : replies.length) + '</span><span class="ps">' + ico('eye', 16) + '浏览 ' + esc(p.viewCount || 0) + '</span><span class="ps">分享 ' + esc(p.shareCount || 0) + '</span></div>' +
       '<p class="row wrap" style="margin-top:12px;">' +
@@ -1550,7 +1559,7 @@
         var xname = nameOrFallback(x.author && x.author.name, x.author && x.author.username);
         var xid = (x.author && x.author.userId) || '';
         return '<div class="post-row">' + avatarSlotHtml(xid, '', true, xname, 36) +
-          '<div class="post-main"><div class="post-author"><a href="#/forum/user/' + esc(xid) + '"><strong style="color:var(--ink);">' + esc(xname) + '</strong></a><span class="faint">' + esc(relTime(x.createdAt)) + '</span>' +
+          '<div class="post-main"><div class="post-author"><a href="#/forum/user/' + esc(xid) + '"><strong style="color:var(--ink);">' + esc(xname) + '</strong></a>' + ownerBadgeHtml(xid, ownerFlagOf(x.author)) + '<span class="faint">' + esc(relTime(x.createdAt)) + '</span>' +
           (x.status && x.status !== 'published' ? '<span class="tag ' + (x.status === 'pending' ? 'blue' : 'red') + '">' + esc(x.status === 'pending' ? '审核中' : x.status) + '</span>' : '') +
           (owner ? '<button class="mini-btn danger" type="button" data-owndelreply="' + esc(x.id) + '">删除</button>' : '') + '</div>' +
           '<div style="white-space:pre-wrap;word-break:break-word;">' + esc(x.content) + '</div></div></div>';
@@ -1639,7 +1648,7 @@
       if (!r.ok) { out.innerHTML = '<p class="err">' + esc(r.message) + '</p>'; return; }
       var users = (r.data && r.data.users) || [];
       out.innerHTML = users.length ? '<div>' + users.map(function (u) {
-        return '<div class="pane-item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><span class="pname">' + esc(nameOrFallback(u.nickname, u.username)) + '</span></span><button class="primary" data-addfriend="' + esc(u.userId) + '" type="button" style="padding:6px 13px;">添加好友</button></div>';
+        return '<div class="pane-item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><span class="pname">' + esc(nameOrFallback(u.nickname, u.username)) + ownerBadgeHtml(u.userId, ownerFlagOf(u)) + '</span></span><button class="primary" data-addfriend="' + esc(u.userId) + '" type="button" style="padding:6px 13px;">添加好友</button></div>';
       }).join('') + '</div>' : '<p class="muted small">未找到对应用户。请确认账户 ID 或邮箱无误（仅支持精确搜索）。</p>';
       fillAvatars(out);
       out.querySelectorAll('[data-addfriend]').forEach(function (b) { b.addEventListener('click', async function () {
@@ -1663,12 +1672,12 @@
       (!incoming.length && !outgoing.length ? '<p class="muted small">暂无待处理的好友申请。</p>' : '') +
       (incoming.length ? '<h3 style="margin-top:2px;">收到的申请</h3>' + incoming.map(function (x) {
         var u = x.user || {};
-        return '<div class="pane-item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><span class="pname">' + esc(nameOrFallback(u.nickname, u.username)) + '</span></span>' +
+        return '<div class="pane-item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><span class="pname">' + esc(nameOrFallback(u.nickname, u.username)) + ownerBadgeHtml(u.userId, ownerFlagOf(u)) + '</span></span>' +
           '<button class="primary" data-accept="' + esc(x.id) + '" style="padding:6px 13px;">同意</button><button class="ghost" data-reject="' + esc(x.id) + '" style="padding:6px 13px;">拒绝</button></div>';
       }).join('') : '') +
       (outgoing.length ? '<h3>我发出的申请</h3>' + outgoing.map(function (x) {
         var u = x.user || {};
-        return '<div class="pane-item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><span class="pname">' + esc(nameOrFallback(u.nickname, u.username)) + '</span><br><span class="psub">等待对方处理</span></span></div>';
+        return '<div class="pane-item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><span class="pname">' + esc(nameOrFallback(u.nickname, u.username)) + ownerBadgeHtml(u.userId, ownerFlagOf(u)) + '</span><br><span class="psub">等待对方处理</span></span></div>';
       }).join('') : '');
     fillAvatars(box);
     box.querySelectorAll('[data-accept]').forEach(function (b) { b.addEventListener('click', async function () { var rr = await api('/friends/request/' + encodeURIComponent(b.getAttribute('data-accept')) + '/accept', { method: 'POST', body: {} }); friendActionErr = rr.ok ? '' : (rr.message || '操作失败，请稍后重试。'); loadRequests(); loadFriends(); }); });
@@ -1684,7 +1693,7 @@
         return '<a class="pane-item" href="#/support"><span class="brand-mark" style="width:44px;height:44px;border-radius:50%;font-size:14px;">客</span><span class="grow"><span class="pname">' + esc(f.displayName || '智能客服') + '</span> <span class="tag blue">系统 · 置顶</span><br><span class="psub">自动回复系统，点击进入智能客服</span></span></a>';
       }
       var uid = f.userId;
-      return '<div class="pane-item">' + avatarSlotHtml(uid, f.avatarUpdatedAt, f.hasAvatar, f.nickname, 44) + '<span class="grow"><a href="#/chat/' + esc(uid) + '" style="color:var(--ink);"><span class="pname">' + esc(nameOrFallback(f.nickname, f.username)) + '</span></a>' + (f.username ? '<br><span class="psub">账户 ID：' + esc(f.username) + '</span>' : '') + '</span>' +
+      return '<div class="pane-item">' + avatarSlotHtml(uid, f.avatarUpdatedAt, f.hasAvatar, f.nickname, 44) + '<span class="grow"><a href="#/chat/' + esc(uid) + '" style="color:var(--ink);"><span class="pname">' + esc(nameOrFallback(f.nickname, f.username)) + ownerBadgeHtml(uid, ownerFlagOf(f)) + '</span></a>' + (f.username ? '<br><span class="psub">账户 ID：' + esc(f.username) + '</span>' : '') + '</span>' +
         '<a class="ghost" href="#/chat/' + esc(uid) + '" style="padding:6px 13px;">聊天</a><button class="mini-btn danger" data-del="' + esc(uid) + '">删除</button></div>';
     }).join('') + '</div>' : '<p class="muted small">暂无好友。可通过上方搜索添加。</p>');
     fillAvatars(box);
@@ -1701,7 +1710,7 @@
     var list = (r.data && r.data.conversations) || [];
     box.innerHTML = list.length ? '<div>' + list.map(function (c) {
       var u = c.user || {};
-      return '<a class="pane-item' + (chatActivePeer && String(u.userId) === String(chatActivePeer) ? ' on' : '') + '" href="#/chat/' + esc(u.userId) + '">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 44) + '<span class="grow"><span class="pname">' + esc(nameOrFallback(u.nickname, u.username)) + '</span><br><span class="psub">最近消息 ' + esc(relTime(c.lastMessageAt)) + '</span></span>' + (c.unreadCount ? '<span class="badge">' + esc(c.unreadCount) + '</span>' : '') + '</a>';
+      return '<a class="pane-item' + (chatActivePeer && String(u.userId) === String(chatActivePeer) ? ' on' : '') + '" href="#/chat/' + esc(u.userId) + '">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 44) + '<span class="grow"><span class="pname">' + esc(nameOrFallback(u.nickname, u.username)) + ownerBadgeHtml(u.userId, ownerFlagOf(u)) + '</span><br><span class="psub">最近消息 ' + esc(relTime(c.lastMessageAt)) + '</span></span>' + (c.unreadCount ? '<span class="badge">' + esc(c.unreadCount) + '</span>' : '') + '</a>';
     }).join('') + '</div>' : '<p class="muted small">暂无会话。可从好友列表进入聊天。</p>';
     fillAvatars(box);
   }
@@ -1754,7 +1763,11 @@
     api('/chat/conversations').then(function (r) {
       var list = (r.ok && r.data && r.data.conversations) || [];
       var hit = list.filter(function (c) { return c.user && String(c.user.userId) === String(peerId); })[0];
-      var nameEl = $('#chatPeerName'); if (nameEl && hit) nameEl.textContent = '与 ' + nameOrFallback(hit.user.nickname, hit.user.username) + ' 的聊天';
+      var nameEl = $('#chatPeerName');
+      if (nameEl && hit) {
+        nameEl.textContent = '与 ' + nameOrFallback(hit.user.nickname, hit.user.username) + ' 的聊天';
+        if (ownerFlagOf(hit.user) || Number(hit.user.userId) === 15) { var ob = document.createElement('span'); ob.className = 'owner-badge'; ob.textContent = '站长'; nameEl.appendChild(ob); }
+      }
       if (hit && hit.user.hasAvatar) showAvatar($('#chatPeerAvatar'), '/profile/' + encodeURIComponent(peerId) + '/avatar', hit.user.avatarUpdatedAt || '', 40);
     });
     function renderReactions() {
@@ -2634,7 +2647,7 @@
     box.innerHTML = '<div class="list">' + users.map(function (u) {
       var avVer = u.avatarUrl ? (String(u.avatarUrl).split('v=')[1] || '') : '';
       return '<a class="item" href="#/owner/user/' + u.id + '">' + avatarSlotHtml(u.id, avVer, !!u.avatarUrl, u.nickname || u.username, 40) +
-        '<span class="grow"><strong>' + esc(u.nickname || u.username) + '</strong>' + banBadge(u) + '<br><span class="muted small">账户 ID：' + esc(u.username) + ' ｜ ' + esc(u.emailMasked) + ' ｜ 注册于 ' + esc(fmtTs(u.createdAt)) + '</span></span><span aria-hidden="true">›</span></a>';
+        '<span class="grow"><strong>' + esc(u.nickname || u.username) + '</strong>' + ownerBadgeHtml(u.id, ownerFlagOf(u)) + banBadge(u) + '<br><span class="muted small">账户 ID：' + esc(u.username) + ' ｜ ' + esc(u.emailMasked) + ' ｜ 注册于 ' + esc(fmtTs(u.createdAt)) + '</span></span><span aria-hidden="true">›</span></a>';
     }).join('') + '</div>' +
       '<p class="row"><button class="ghost" id="ownPrev"' + ((pageNum || 0) === 0 ? ' disabled' : '') + '>上一页</button>' +
       '<button class="ghost" id="ownNext"' + (users.length < 20 ? ' disabled' : '') + '>下一页</button>' +
@@ -2658,7 +2671,7 @@
     var b = r.data;
     box.innerHTML = kvTable([
       ['账户 ID', esc(b.username) + '（内部编号 ' + b.id + '）'],
-      ['昵称', esc(b.nickname || '（未设置）')],
+      ['昵称', esc(b.nickname || '（未设置）') + ownerBadgeHtml(uid, ownerFlagOf(b))],
       ['邮箱', esc(b.emailMasked) + ' <button class="ghost" id="ownViewEmail" type="button">查看完整邮箱</button>'],
       ['账号状态', esc(b.status) + ((b.passwordFrozen && b.passwordFrozen.frozen) ? ' ｜ 密码已冻结' : '') + ((b.deletion && b.deletion.requested) ? ' ｜ 已申请注销（生效时间 ' + esc(fmtTs(b.deletion.effectiveAt || 0)) + '）' : '')],
       ['密码', b.passwordSet.set ? '已设置' : '未设置（谷歌新账号待补设）'],
@@ -2922,7 +2935,7 @@
       var ra = await api('/owner/reviews/appeals?status=pending'); if (!ra.ok) { body.innerHTML = '<p class="muted">加载失败。</p>'; return; }
       var list = (ra.data && ra.data.appeals) || [];
       body.innerHTML = list.length ? list.map(function (a) {
-        return '<div class="item"><span class="grow"><strong>封号申诉 #' + a.id + '</strong>（用户 ' + a.user_id + (a.user_username ? ' · ' + esc(a.user_username) : '') + '）<br><span class="muted small">' + esc(a.content || '') + '</span></span></div>' +
+        return '<div class="item"><span class="grow"><strong>封号申诉 #' + a.id + '</strong>（用户 ' + a.user_id + (a.user_username ? ' · ' + esc(a.user_username) : '') + '）' + ownerBadgeHtml(a.user_id) + '<br><span class="muted small">' + esc(a.content || '') + '</span></span></div>' +
           reviewButtons('<button class="primary" data-ap="' + a.id + '">批准（解封）</button><button class="ghost" data-rj="' + a.id + '">驳回</button>');
       }).join('') : '<p class="muted">暂无待审申诉。</p>';
       body.querySelectorAll('[data-ap]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/appeals/' + b.getAttribute('data-ap') + '/review', { decision: 'approve' }, '批准该申诉')); });
@@ -3015,7 +3028,7 @@
   function redeemDetailHtml(v) {
     var rows = [
       ['订单号', '#' + esc(v.id)],
-      ['下单人', esc(v.nickname || '—') + (v.username ? '（' + esc(v.username) + '）' : '') + (v.userId ? ' · 用户 ' + esc(v.userId) : '')],
+      ['下单人', esc(v.nickname || '—') + ownerBadgeHtml(v.userId) + (v.username ? '（' + esc(v.username) + '）' : '') + (v.userId ? ' · 用户 ' + esc(v.userId) : '')],
       ['商品', esc(v.product)],
       ['积分', esc(v.points) + ' 分'],
       ['发放方式', esc(payoutMethodLabel(v))],
@@ -3065,7 +3078,7 @@
     var payout = list.filter(function (v) { return v.status === 'pending_payout'; });
     function rowHtml(v, acts) {
       return '<div class="item"><span class="grow"><strong>' + esc(v.product) + '</strong>（#' + esc(v.id) + '，' + esc(v.points) + ' 积分）<br>' +
-        '<span class="muted small">' + esc(v.nickname || '—') + (v.username ? '（' + esc(v.username) + '）' : '') + ' · ' + esc(payoutMethodLabel(v)) + ' · ' + esc(redeemTargetText(v)) + ' · ' + esc(ORDER_STATUS[v.status] || v.status) + ' · ' + esc(redeemTimeText(v)) + '</span></span></div>' +
+        '<span class="muted small">' + esc(v.nickname || '—') + ownerBadgeHtml(v.userId) + (v.username ? '（' + esc(v.username) + '）' : '') + ' · ' + esc(payoutMethodLabel(v)) + ' · ' + esc(redeemTargetText(v)) + ' · ' + esc(ORDER_STATUS[v.status] || v.status) + ' · ' + esc(redeemTimeText(v)) + '</span></span></div>' +
         reviewButtons(acts);
     }
     body.innerHTML = '<h3>待审核（' + pending.length + '）</h3>' + (pending.length ? pending.map(function (v) {
