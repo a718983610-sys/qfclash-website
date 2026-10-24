@@ -2553,38 +2553,28 @@
   function ownerDenied() {
     view.innerHTML = '<div class="card"><h2>站长管理台</h2><p class="muted">当前账号没有管理权限。如需协助，请通过智能客服联系维护者。</p></div>';
   }
-  // 两步弹窗：第一步讲清对象与后果并确认，第二步输入登录密码完成身份核验（reauth）。
-  // 返回 { confirmed:true, password } 或 null（取消）。fieldsHtml 为第一步的附加表单，
-  // collect() 从第一步表单读取业务字段。
+  // 单步确认弹窗：讲清对象与后果，站长核对后点「确认无误」即执行，不再输
+  // 登录密码复核（用户 2026-10-24 20:39 拍板；服务端站长闸已同步改为只验
+  // body.confirm === true，审计留痕照旧）。返回业务字段 + { confirm:true }
+  // 或 null（取消）。fieldsHtml 为附加业务表单，collect() 从表单读取业务字段。
   function ownerConfirm(opts) {
     return new Promise(function (resolve) {
       var ov = el('<div class="own-overlay"><div class="own-dialog" role="dialog" aria-modal="true">' +
         '<h3>' + esc(opts.title) + '</h3><p>' + esc(opts.body) + '</p>' +
         (opts.fieldsHtml || '') +
-        '<p class="muted small">该操作将记录在管理审计中。此为第一步确认，请核对无误后再继续。</p>' +
+        '<p class="muted small">该操作将记录在管理审计中。请核对无误后再执行。</p>' +
         '<div class="row-end"><button type="button" class="ghost" data-act="cancel">取消</button>' +
-        '<button type="button" class="' + (opts.danger ? 'own-danger' : 'primary') + '" data-act="next">确认无误，继续</button></div></div></div>');
+        '<button type="button" class="' + (opts.danger ? 'own-danger' : 'primary') + '" data-act="go">确认无误</button></div></div></div>');
       document.body.appendChild(ov);
       if (opts.onShow) opts.onShow(ov);
       function close(v) { ov.remove(); resolve(v); }
       ov.addEventListener('click', function (ev) { if (ev.target === ov) close(null); });
       ov.querySelector('[data-act="cancel"]').addEventListener('click', function () { close(null); });
-      ov.querySelector('[data-act="next"]').addEventListener('click', function () {
+      ov.querySelector('[data-act="go"]').addEventListener('click', function () {
         var fields = opts.collect ? opts.collect(ov) : {};
         if (fields === null) return;
-        ov.querySelector('.own-dialog').innerHTML =
-          '<h3>身份核验</h3><p class="muted">为防止账号被他人冒用执行敏感操作，请输入您的登录密码完成核验。核验通过后操作将立即执行。</p>' +
-          '<label for="ownPw">登录密码</label><input id="ownPw" type="password" autocomplete="current-password">' +
-          '<p class="own-err muted small" style="color:#a50e0e;"></p>' +
-          '<div class="row-end"><button type="button" class="ghost" data-act="cancel2">取消</button>' +
-          '<button type="button" class="primary" data-act="go">确认执行</button></div>';
-        var pw = ov.querySelector('#ownPw'); pw.focus();
-        ov.querySelector('[data-act="cancel2"]').addEventListener('click', function () { close(null); });
-        ov.querySelector('[data-act="go"]').addEventListener('click', function () {
-          if (!pw.value) { ov.querySelector('.own-err').textContent = '请输入登录密码。'; return; }
-          fields.password = pw.value; fields.confirm = true;
-          close(fields);
-        });
+        fields.confirm = true;
+        close(fields);
       });
     });
   }
@@ -2616,7 +2606,7 @@
       '<form id="ownSearch" class="row wrap" style="margin-top:10px;"><select id="ownBy"><option value="username">按账户 ID</option><option value="email">按邮箱</option></select>' +
       '<input id="ownQ" type="text" placeholder="输入账户 ID 或邮箱（支持开头匹配）" style="flex:1;min-width:180px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;">' +
       '<button class="primary" type="submit">搜索</button></form>' +
-      '<p class="muted small">邮箱在列表中打码展示；完整邮箱仅可在用户详情中经身份核验后单条查看。</p>' +
+      '<p class="muted small">邮箱在列表中打码展示；完整邮箱仅可在用户详情中单条查看，查看将记录在管理审计中。</p>' +
       '<div id="ownList"><p class="muted">正在加载…</p></div></div>';
     $('#ownSearch').addEventListener('submit', function (ev) { ev.preventDefault(); loadOwnerUsers(); });
     loadOwnerUsers();
@@ -2670,7 +2660,7 @@
       var f = await ownerConfirm({ title: '查看完整邮箱', body: '您将查看该用户的完整邮箱地址。此操作将记录在管理审计中（记录不含邮箱本身）。' });
       if (!f) return;
       var vr = await api('/owner/users/' + uid + '/view-email', { method: 'POST', body: f });
-      if (!vr.ok) return alert(vr.message || '核验未通过。');
+      if (!vr.ok) return alert(vr.message || '查看失败，请稍后重试。');
       alert('该用户的完整邮箱：' + vr.data.email);
     });
     renderOwnerActions(uid, b);
@@ -2810,8 +2800,8 @@
         btn.addEventListener('click', async function () {
           var f = await ownerConfirm({ title: '查看完整发放信息', body: '您将查看该订单的完整发放信息（收款地址或接收邮箱）。此操作将记录在管理审计中（记录不含具体内容）。' });
           if (!f) return;
-          var vr = await api('/owner/users/' + uid + '/view-payout', { method: 'POST', body: { orderId: Number(btn.getAttribute('data-payout')), password: f.password } });
-          if (!vr.ok) return alert(vr.message || '核验未通过。');
+          var vr = await api('/owner/users/' + uid + '/view-payout', { method: 'POST', body: { orderId: Number(btn.getAttribute('data-payout')), confirm: true } });
+          if (!vr.ok) return alert(vr.message || '查看失败，请稍后重试。');
           alert('发放方式：' + (vr.data.payoutMethod || '') + '\n收款地址：' + (vr.data.payoutAddress || '—') + '\n接收邮箱：' + (vr.data.payoutEmail || '—'));
         });
       });
