@@ -198,6 +198,61 @@
   });
   document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') setDrawer(false); });
 
+  // ---------- v2 交互层：顶栏滚动阴影 / 搜索层 / 底部发帖钮 ----------
+  window.addEventListener('scroll', function () {
+    var tb = document.querySelector('.topbar');
+    if (tb) tb.classList.toggle('scrolled', window.scrollY > 6);
+  }, { passive: true });
+  var composeWanted = false; // 底部「发帖」钮：先到论坛首页，再自动打开发帖框
+  var tabPostBtn = $('#tabPost');
+  if (tabPostBtn) tabPostBtn.addEventListener('click', function () { composeWanted = true; });
+  // 搜索层：真实能力只有好友精确搜索（与好友页同一接口），另附快捷入口；
+  // 不做无服务端支撑的假搜索。
+  var searchOverlay = null;
+  function closeSearch() { if (searchOverlay) { searchOverlay.remove(); searchOverlay = null; } }
+  function openSearch() {
+    if (searchOverlay) return;
+    searchOverlay = document.createElement('div');
+    searchOverlay.className = 'search-overlay';
+    searchOverlay.innerHTML = '<div class="search-sheet" role="dialog" aria-label="搜索">' +
+      '<form class="ss-head" id="ssForm"><input id="ssInput" type="search" placeholder="按账户 ID 或邮箱精确搜索好友" autocomplete="off"><button class="primary" type="submit">搜索</button><button class="ghost" type="button" id="ssClose">关闭</button></form>' +
+      '<div id="ssOut"></div>' +
+      '<h3>快捷入口</h3><div class="ss-links">' +
+      '<a href="#/forum">' + ico('chat', 18) + '论坛首页</a>' +
+      '<a href="#/friends">' + ico('users', 18) + '好友与会话</a>' +
+      '<a href="#/support">' + ico('headset', 18) + '智能客服</a>' +
+      '<a href="#/points">' + ico('star', 18) + '积分兑换</a></div></div>';
+    document.body.appendChild(searchOverlay);
+    searchOverlay.addEventListener('pointerdown', function (ev) { if (ev.target === searchOverlay) closeSearch(); });
+    searchOverlay.querySelector('#ssClose').addEventListener('click', closeSearch);
+    searchOverlay.querySelectorAll('.ss-links a').forEach(function (a) { a.addEventListener('click', closeSearch); });
+    var input = searchOverlay.querySelector('#ssInput');
+    if (input) input.focus();
+    searchOverlay.querySelector('#ssForm').addEventListener('submit', async function (ev) {
+      ev.preventDefault();
+      var out = searchOverlay.querySelector('#ssOut');
+      var q = String(input.value || '').trim(); if (!q) return;
+      if (!loggedIn()) { out.innerHTML = '<p class="muted" style="margin-top:12px;">登录后可搜索并添加好友。</p>'; return; }
+      out.innerHTML = '<p class="muted" style="margin-top:12px;">正在搜索…</p>';
+      var r = await api('/friends/search', { method: 'POST', body: { query: q } });
+      if (!searchOverlay) return;
+      if (!r.ok) { out.innerHTML = '<p class="err" style="margin-top:12px;">' + esc(r.message) + '</p>'; return; }
+      var users = (r.data && r.data.users) || [];
+      out.innerHTML = '<h3>搜索结果</h3>' + (users.length ? users.map(function (u) {
+        return '<div class="pane-item">' + avatarSlotHtml(u.userId, u.avatarUpdatedAt, u.hasAvatar, u.nickname, 40) + '<span class="grow"><span class="pname">' + esc(u.nickname || '用户') + '</span></span><button class="primary" data-ssadd="' + esc(u.userId) + '" type="button" style="padding:6px 13px;">添加好友</button></div>';
+      }).join('') : '<p class="muted small">未找到对应用户。请确认账户 ID 或邮箱无误（仅支持精确搜索）。</p>');
+      fillAvatars(out);
+      out.querySelectorAll('[data-ssadd]').forEach(function (b) { b.addEventListener('click', async function () {
+        var rr = await api('/friends/request', { method: 'POST', body: { userId: Number(b.getAttribute('data-ssadd')) } });
+        b.textContent = rr.ok ? '已发送' : '失败'; b.disabled = true;
+        if (!rr.ok) alert(rr.message || '发送失败，请稍后重试。');
+      }); });
+    });
+  }
+  var topSearchBtn = $('#topSearchBtn');
+  if (topSearchBtn) topSearchBtn.addEventListener('click', openSearch);
+  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') closeSearch(); });
+
   function renderIdentity() {
     var box = $('#drawerIdentity');
     var btn = $('#logoutBtn');
@@ -227,13 +282,14 @@
     return { name: parts[0], arg: parts[1] || '', sub: parts[2] || '' };
   }
   function markNav(name) {
-    document.querySelectorAll('#drawerNav a').forEach(function (a) { a.classList.toggle('active', a.getAttribute('data-route') === name); });
+    document.querySelectorAll('#drawerNav a, .topnav a, #tabbar a[data-route]').forEach(function (a) { a.classList.toggle('active', a.getAttribute('data-route') === name); });
   }
   function needLogin(title) {
     view.innerHTML = '<div class="card"><h2>' + esc(title) + '</h2><p class="muted">您尚未登录。登录后即可使用此功能，网页版与客户端共用同一账号。</p><p><a class="primary" href="#/login">前往登录</a></p></div>';
   }
   async function render() {
     var r = route(); markNav(r.name === 'chat' ? 'friends' : r.name);
+    document.body.classList.toggle('in-chat', r.name === 'chat');
     if (r.name !== 'chat' && typeof chatTimer !== 'undefined' && chatTimer) { clearInterval(chatTimer); chatTimer = null; }
     probeOwner();
     window.scrollTo(0, 0);
@@ -259,23 +315,48 @@
   }
   window.addEventListener('hashchange', render);
 
-  // ---------- 首页 ----------
-  function pageHome() {
+  // ---------- 首页（v2 信息流：hero＋板块墙＋最新帖子流＋功能导航） ----------
+  async function pageHome() {
     var me = meBasic();
     view.innerHTML =
-      '<div class="card"><div class="row"><span class="brand-mark" style="width:44px;height:44px;border-radius:12px;font-size:17px;">QF</span>' +
-      '<span class="grow"><strong style="font-size:19px;">欢迎使用 QFClash 网页版</strong><br><span class="muted small">与客户端共用同一账号，好友、聊天、论坛、营地、积分与客服三端同步；连接、节点与订阅功能请使用客户端。</span></span></div>' +
-      (loggedIn() ? '<p style="margin:14px 0 0;">当前登录：<strong>' + esc(me.nickname || '用户') + '</strong>' + (me.username ? '（账户 ID：' + esc(me.username) + '）' : '') + '</p>'
-                  : '<p class="row wrap" style="margin:16px 0 0;"><a class="primary" href="#/login">登录</a><a class="ghost" href="#/register">注册</a><a class="ghost" href="#/forum">先逛论坛</a></p>') + '</div>' +
+      '<div class="hero"><div class="hero-in"><div class="hero-kicker">QFCLASH · 网页版</div>' +
+      '<div class="hero-title">欢迎使用 QFClash 网页版</div>' +
+      '<div class="hero-sub">与客户端共用同一账号，好友、聊天、论坛、营地、积分与客服三端同步；连接、节点与订阅功能请使用客户端。</div>' +
+      (loggedIn()
+        ? '<div class="hero-user"><span id="homeAvatar"><span class="avatar-ph">' + esc((me.nickname || 'Q').slice(0, 1)) + '</span></span><span><span class="hnick">' + esc(me.nickname || '用户') + '</span><br><span class="huid">' + (me.username ? '账户 ID：' + esc(me.username) : '') + '</span></span></div>' +
+          '<div class="hero-cta"><a class="btn-white" href="#/forum">进入论坛</a><a class="btn-ghost-w" href="#/friends">好友与会话</a></div>'
+        : '<div class="hero-cta"><a class="btn-white" href="#/login">登录</a><a class="btn-ghost-w" href="#/register">注册</a><a class="btn-ghost-w" href="#/forum">先逛论坛</a></div>') +
+      '</div></div>' +
+      '<div class="card"><h2 style="margin-bottom:12px;">逛板块</h2><div class="board-grid" id="homeBoards">' + sklCards(1) + '</div></div>' +
+      '<div class="card"><div class="row"><h2 class="grow" style="margin:0;">最新帖子</h2><a class="ghost" href="#/forum" style="padding:6px 14px;">去论坛</a></div><div id="homeFeed" style="margin-top:14px;">' + sklCards(2) + '</div></div>' +
       '<div class="card"><h2>功能导航</h2><div class="list">' +
-      [['#/points', '积分', '查看积分余额、进度与明细，在网页完成兑换；积分获取以客户端在线时长为准。'],
-       ['#/forum', '论坛', '综合讨论、使用求助、建议与反馈与公告，并可创建、加入主题社区「营地」。'],
-       ['#/friends', '好友与会话', '管理好友与申请，进行端对端加密聊天。'],
-       ['#/support', '智能客服', '自动回复系统，全天候解答使用问题，可转人工。'],
-       ['#/feedback', '意见反馈', '问题与建议直达维护者，与客户端意见反馈同一通道。'],
-       ['#/security', '安全中心', '修改密码、换绑邮箱、登录设备、通行密钥与注销账号。']]
-        .map(function (x) { return '<a class="item" href="' + x[0] + '"><span class="grow"><strong>' + x[1] + '</strong><br><span class="muted small">' + x[2] + '</span></span><span aria-hidden="true" class="faint">›</span></a>'; }).join('') +
+      [['#/points', '积分', '查看积分余额、进度与明细，在网页完成兑换；积分获取以客户端在线时长为准。', 'star', 'c-teal'],
+       ['#/forum', '论坛', '综合讨论、使用求助、建议与反馈与公告，并可创建、加入主题社区「营地」。', 'chat', 'c-blue'],
+       ['#/friends', '好友与会话', '管理好友与申请，进行端对端加密聊天。', 'users', 'c-violet'],
+       ['#/support', '智能客服', '自动回复系统，全天候解答使用问题，可转人工。', 'headset', 'c-sky'],
+       ['#/feedback', '意见反馈', '问题与建议直达维护者，与客户端意见反馈同一通道。', 'mail', 'c-deep'],
+       ['#/security', '安全中心', '修改密码、换绑邮箱、登录设备、通行密钥与注销账号。', 'shield', 'c-slate']]
+        .map(function (x) { return '<a class="item" href="' + x[0] + '"><span class="nav-ico ' + x[3 + 1] + '">' + ico(x[3], 21) + '</span><span class="grow"><strong>' + x[1] + '</strong><br><span class="muted small">' + x[2] + '</span></span><span aria-hidden="true" class="faint">›</span></a>'; }).join('') +
       '</div></div>';
+    if (loggedIn()) showAvatar($('#homeAvatar'), '/profile/avatar', myAvatarVer, 48);
+    var bBox = $('#homeBoards');
+    var boardsR = await api('/forum/boards', { auth: false });
+    if (bBox && boardsR.ok) {
+      var boards = (boardsR.data && boardsR.data.boards) || [];
+      bBox.innerHTML = boards.map(function (b) {
+        var key = b.key || b.id; var bm = boardMeta(key);
+        return '<a class="board-card" href="#/forum" data-board-link="' + esc(key) + '"><span class="bc-ico bc-' + bm.cls + '">' + ico(bm.ico, 23) + '</span><span><span class="bc-name">' + esc(b.name || b.title || key) + '</span><span class="bc-sub">' + esc(bm.sub) + '</span></span></a>';
+      }).join('');
+      bBox.querySelectorAll('[data-board-link]').forEach(function (a) { a.addEventListener('click', function () { forumState.board = a.getAttribute('data-board-link'); forumState.tab = 'home'; forumState.campId = ''; }); });
+    } else if (bBox) { bBox.innerHTML = '<p class="muted small">板块加载失败，请稍后重试。</p>'; }
+    var fBox = $('#homeFeed');
+    var postsR = await api('/forum/posts?limit=6&offset=0', { auth: loggedIn() });
+    if (fBox) {
+      var posts = postsR.ok ? ((postsR.data && postsR.data.posts) || []) : null;
+      fBox.innerHTML = posts === null ? '<p class="err">' + esc(postsR.message || '帖子加载失败，请稍后重试。') + '</p>'
+        : (posts.length ? '<div class="feed">' + posts.map(postItemHtml).join('') + '</div>' : '<div class="empty-v2"><div class="ev-ico">' + ico('inbox', 30) + '</div><div class="ev-title">暂无帖子</div><div class="ev-sub">论坛还没有帖子，来发第一帖吧。</div></div>');
+      fillAvatars(fBox);
+    }
   }
 
   // ---------- 登录 / 注册 / 找回 / 申诉 ----------
@@ -653,14 +734,64 @@
   // 个人主页 /forum/users/:userId/profile {user:{userId,name,joinedAt},stats:{posts,comments},posts,comments}
   // 千赞：帖子详情作者视角带 reward {eligible,state}；申请 POST /forum/posts/:id/reward-applications；我的申请 GET /forum/me/reward-applications
   var forumState = { tab: 'home', board: '', campId: '' };
+  // v2 视觉助手：线性 SVG 图标（描边风格）与板块元数据（图标/渐变类/一句文案，
+  // 文案为产品文案非数据）；帖子无配图数据，列表封面为「板块封面块」占位。
+  var ICO_PATHS = {
+    heart: '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
+    reply: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+    eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
+    grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>',
+    chat: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>',
+    help: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+    pen: '<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>',
+    mega: '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+    star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+    users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    headset: '<path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>',
+    mail: '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>',
+    shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+    inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>'
+  };
+  function ico(name, size) {
+    var s = size || 16;
+    return '<svg class="ico" width="' + s + '" height="' + s + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICO_PATHS[name] || '') + '</svg>';
+  }
+  var BOARD_META = {
+    '': { name: '全部板块', sub: '所有板块的最新帖子', ico: 'grid', cls: 'all' },
+    general: { name: '综合讨论', sub: '使用技巧与经验交流', ico: 'chat', cls: 'general' },
+    help: { name: '使用求助', sub: '遇到问题来这里求助', ico: 'help', cls: 'help' },
+    suggestions: { name: '建议与反馈', sub: '提建议、说想法', ico: 'pen', cls: 'suggestions' },
+    announcements: { name: '公告', sub: '官方通知与版本动态', ico: 'mega', cls: 'announcements' }
+  };
+  function boardMeta(key) { return BOARD_META[key] || BOARD_META.general; }
+  function boardCardHtml(key, name) {
+    var bm = boardMeta(key);
+    return '<button type="button" class="board-card' + (forumState.board === key ? ' on' : '') + '" data-board="' + esc(key) + '">' +
+      '<span class="bc-ico bc-' + bm.cls + '">' + ico(bm.ico, 23) + '</span>' +
+      '<span><span class="bc-name">' + esc(name || bm.name) + '</span><span class="bc-sub">' + esc(bm.sub) + '</span></span></button>';
+  }
+  function sklCards(n) {
+    var one = '<div class="skl-card"><div class="skl-row"><div class="skl" style="width:38px;height:38px;border-radius:50%;"></div><div style="flex:1;"><div class="skl skl-line" style="width:34%;"></div><div class="skl skl-line" style="width:22%;"></div></div></div><div class="skl skl-line" style="width:78%;height:16px;margin-top:14px;"></div><div class="skl skl-line" style="width:92%;"></div><div class="skl skl-line" style="width:46%;"></div></div>';
+    var out = ''; for (var i = 0; i < (n || 3); i++) out += one; return out;
+  }
+  function sklRows(n) {
+    var one = '<div class="skl-row" style="padding:9px 0;"><div class="skl" style="width:44px;height:44px;border-radius:50%;flex:0 0 auto;"></div><div style="flex:1;"><div class="skl skl-line" style="width:42%;"></div><div class="skl skl-line" style="width:64%;"></div></div></div>';
+    var out = ''; for (var i = 0; i < (n || 3); i++) out += one; return out;
+  }
   function forumHeaderHtml() {
     if (!loggedIn()) {
-      return '<div class="card"><div class="row"><span class="avatar-ph">未</span><span class="grow"><strong>未登录</strong><br><span class="muted small">登录后可发帖、回复与加入营地。</span></span><a class="primary" href="#/login">登录</a></div></div>';
+      return '<div class="hero"><div class="hero-in"><div class="hero-kicker">社区 · FORUM</div>' +
+        '<div class="hero-title">欢迎来到 QFClash 论坛</div>' +
+        '<div class="hero-sub">综合讨论、使用求助、建议与反馈与官方公告都在这里，还可以创建、加入主题社区「营地」。游客可直接浏览，登录后即可发帖、回复与加入营地。</div>' +
+        '<div class="hero-cta"><a class="btn-white" href="#/login">登录</a><a class="btn-ghost-w" href="#/register">注册账号</a></div></div></div>';
     }
     var me = meBasic();
-    return '<div class="card"><div class="row"><span id="forumAvatar"><span class="avatar-ph">' + esc((me.nickname || 'Q').slice(0, 1)) + '</span></span>' +
-      '<span class="grow"><strong>' + esc(me.nickname || '用户') + '</strong><br><span class="muted small">账户 ID：' + esc(me.username || '—') + '</span></span>' +
-      '<a class="ghost" href="#/me">个人资料</a></div></div>';
+    return '<div class="hero"><div class="hero-in"><div class="hero-kicker">社区 · FORUM</div>' +
+      '<div class="hero-title">论坛</div>' +
+      '<div class="hero-sub">聊使用、提问题、说想法，也可以创建自己的主题营地。</div>' +
+      '<div class="hero-user"><span id="forumAvatar"><span class="avatar-ph">' + esc((me.nickname || 'Q').slice(0, 1)) + '</span></span>' +
+      '<span><span class="hnick">' + esc(me.nickname || '用户') + '</span><br><span class="huid">账户 ID：' + esc(me.username || '—') + '</span></span></div>' +
+      '<div class="hero-cta"><a class="btn-ghost-w" href="#/me">个人资料</a></div></div></div>';
   }
   function forumTabsHtml(active) {
     var tabs = [['home', '首页'], ['mine', '我的帖子'], ['reviews', '我的评价'], ['stats', '数据分析']];
@@ -680,20 +811,24 @@
   }
   function postItemHtml(p) {
     var excerpt = String(p.content || '').replace(/\s+/g, ' ').slice(0, 110);
-    var av = authorId(p) ? avatarSlotHtml(authorId(p), '', true, authorName(p), 40) : '<span class="avatar-ph" style="width:40px;height:40px;">' + esc(authorName(p).slice(0, 1)) + '</span>';
-    return '<div class="post-row">' + av +
-      '<div class="post-main"><a class="post-title" href="#/forum/post/' + esc(p.id) + '">' + esc(p.title || '(无标题)') + '</a>' + postStatusTag(p) +
+    var aid = authorId(p), aname = authorName(p);
+    var bm = boardMeta(p.board || '');
+    var av = aid ? avatarSlotHtml(aid, '', true, aname, 38) : '<span class="avatar-ph" style="width:38px;height:38px;">' + esc(aname.slice(0, 1)) + '</span>';
+    var hot = Number(p.likeCount || 0) >= 50 ? '<span class="tag hot">热门</span>' : '';
+    return '<div class="post-row"><div class="post-main">' +
+      '<div class="post-top">' + av + '<span class="post-who"><a class="post-name" href="#/forum/user/' + esc(aid) + '">' + esc(aname) + '</a>' +
+      '<span class="post-sub">' + esc(relTime(p.createdAt)) + ' · ' + esc(bm.name) + '</span></span>' + hot + '</div>' +
+      '<a class="post-title" href="#/forum/post/' + esc(p.id) + '">' + esc(p.title || '(无标题)') + '</a>' + postStatusTag(p) +
       (excerpt ? '<div class="post-excerpt">' + esc(excerpt) + '</div>' : '') +
-      '<div class="post-stats"><span><a href="#/forum/user/' + esc(authorId(p)) + '">' + esc(authorName(p)) + '</a></span><span>' + esc(relTime(p.createdAt)) + '</span>' +
-      '<span>赞 ' + esc(p.likeCount || 0) + '</span><span>回复 ' + esc(p.replyCount || 0) + '</span><span>浏览 ' + esc(p.viewCount || 0) + '</span></div>' +
-      '</div></div>';
+      '<div class="post-stats"><span class="ps">' + ico('heart', 15) + esc(p.likeCount || 0) + '</span><span class="ps">' + ico('reply', 15) + esc(p.replyCount || 0) + '</span><span class="ps">' + ico('eye', 15) + esc(p.viewCount || 0) + '</span></div>' +
+      '</div><div class="post-cover bc-' + bm.cls + '" aria-hidden="true">' + ico(bm.ico, 30) + '</div></div>';
   }
   async function pageForum(r) {
     if (r.arg === 'user' && r.sub) return forumUserPage(r.sub);
     if (r.arg === 'post' && r.sub) return forumPostPage(r.sub);
     if (r.arg === 'camp' && r.sub) return forumCampPage(r.sub);
-    view.innerHTML = forumHeaderHtml() + forumTabsHtml(forumState.tab) + '<div id="forumBody"><p class="muted">正在加载…</p></div>';
-    if (loggedIn()) showAvatar($('#forumAvatar'), '/profile/avatar', myAvatarVer, 44);
+    view.innerHTML = forumHeaderHtml() + forumTabsHtml(forumState.tab) + '<div id="forumBody">' + sklCards(3) + '</div>';
+    if (loggedIn()) showAvatar($('#forumAvatar'), '/profile/avatar', myAvatarVer, 48);
     view.querySelectorAll('[data-ftab]').forEach(function (b) { b.addEventListener('click', function () { forumState.tab = b.getAttribute('data-ftab'); pageForum(route()); }); });
     var body = $('#forumBody'); if (!body) return;
     if (forumState.tab === 'mine' || forumState.tab === 'reviews') {
@@ -739,26 +874,28 @@
     var postsR = await api(postsUrl, { auth: loggedIn() });
     var posts = postsR.ok ? ((postsR.data && postsR.data.posts) || []) : null;
     body.innerHTML =
+      '<div class="card"><h2 style="margin-bottom:12px;">板块</h2><div class="board-grid">' +
+      boardCardHtml('', '全部板块') +
+      boards.map(function (b) { return boardCardHtml(b.key || b.id, b.name || b.title || b.key); }).join('') + '</div>' +
+      (boardsR.ok ? '' : '<p class="err small" style="margin:10px 0 0;">' + esc(boardsR.message || '板块加载失败，请稍后重试。') + '</p>') + '</div>' +
       '<div class="card"><div class="row"><h2 class="grow" style="margin:0;">帖子</h2>' +
       (loggedIn() ? '<button class="primary" id="newPostBtn" type="button">发布帖子</button>' : '<a class="primary" href="#/login">登录后发帖</a>') + '</div>' +
-      '<div class="chips" style="margin:12px 0 4px;">' +
-      '<button type="button" class="chip' + (!forumState.board ? ' on' : '') + '" data-board="">全部板块</button>' +
-      boards.map(function (b) { return '<button type="button" class="chip' + (forumState.board === (b.key || b.id) ? ' on' : '') + '" data-board="' + esc(b.key || b.id) + '">' + esc(b.name || b.title || b.key) + '</button>'; }).join('') + '</div>' +
-      (boardsR.ok ? '' : '<p class="err small">' + esc(boardsR.message || '板块加载失败，请稍后重试。') + '</p>') +
       (forumState.campId ? '<p class="muted small">当前按营地筛选帖子。<button type="button" class="chip" id="clearCampFilter">清除营地筛选</button></p>' : '') +
-      '<div>' + (posts === null ? '<p class="err">' + esc(postsR.message) + '</p>' : (posts.length ? posts.map(postItemHtml).join('') : '<p class="empty">暂无帖子，来发第一帖吧。</p>')) + '</div>' +
+      '<div style="margin-top:14px;">' + (posts === null ? '<p class="err">' + esc(postsR.message) + '</p>' : (posts.length ? '<div class="feed" id="postFeed">' + posts.map(postItemHtml).join('') + '</div>' + (posts.length >= 20 ? '<div class="load-more-wrap"><button class="ghost" id="morePostsBtn" type="button">加载更多</button></div>' : '') : '<div class="empty-v2"><div class="ev-ico">' + ico('inbox', 30) + '</div><div class="ev-title">暂无帖子</div><div class="ev-sub">这个板块还没有帖子，来发第一帖吧。</div></div>')) + '</div>' +
       '<div id="composeBox"></div></div>' +
       '<div class="card"><div class="row"><span class="grow"><h2 style="margin:0;">主题社区 · 营地</h2><span class="muted small">围绕具体主题的讨论社区，加入后可在营地内发帖。</span></span>' +
       (loggedIn() ? '<button class="ghost" id="createCampBtn" type="button">创建营地</button>' : '') + '</div>' +
       '<div id="campFormBox"></div>' +
-      (camps.length ? '<div class="camp-grid" style="margin-top:14px;">' + camps.map(function (c) {
-        return '<div class="camp-card"><a class="camp-name" href="#/forum/camp/' + esc(c.id) + '">' + esc(c.name) + '</a>' +
+      (camps.length ? '<div class="camp-grid" style="margin-top:14px;">' + camps.map(function (c, ci) {
+        return '<div class="camp-card"><div class="camp-cover camp-grad-' + (ci % 6) + '"><span class="cc-glyph">' + esc((c.name || '营').slice(0, 1)) + '</span><span class="cc-sub">营地 · CAMP</span></div>' +
+          '<div class="camp-body"><a class="camp-name" href="#/forum/camp/' + esc(c.id) + '">' + esc(c.name) + '</a>' +
           '<span class="camp-desc">' + esc(c.description || '暂无简介') + '</span>' +
           '<span class="camp-meta">成员 ' + esc(c.memberCount || 0) + ' · 帖子 ' + esc(c.postCount || 0) + (c.creator && c.creator.displayName ? ' · ' + esc(c.creator.displayName) + ' 创建' : '') + '</span>' +
-          (loggedIn() ? '<span><button class="ghost" data-joincamp="' + esc(c.id) + '" data-joined="' + (c.joined ? '1' : '') + '" style="padding:6px 14px;">' + (c.joined ? '已加入' : '加入营地') + '</button></span>' : '') + '</div>';
+          (loggedIn() ? '<span style="margin-top:8px;"><button class="ghost" data-joincamp="' + esc(c.id) + '" data-joined="' + (c.joined ? '1' : '') + '" style="padding:6px 14px;">' + (c.joined ? '已加入' : '加入营地') + '</button></span>' : '') + '</div></div>';
       }).join('') + '</div>' : (campsR.ok ? '<p class="empty">暂无营地。</p>' : '<p class="err">' + esc(campsR.message || '营地加载失败，请稍后重试。') + '</p>')) +
       (loggedIn() ? '<h3>我创建的营地</h3><div id="myCampsBox"><p class="muted small">正在加载…</p></div>' : '') + '</div>' +
-      '<div class="card"><h2>外站精选</h2><p class="muted small">来自外部平台的精选内容，版权归原作者所有；点击可查看原文。</p><div id="extHighlights"><p class="muted">正在加载…</p></div></div>';
+      '<div class="card"><h2>外站精选</h2><p class="muted small">来自外部平台的精选内容，版权归原作者所有；点击可查看原文。</p><div id="extHighlights">' + sklCards(2) + '</div></div>' +
+      (loggedIn() ? '<button class="fab" id="fabPost" type="button" aria-label="发布帖子"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>发帖</button>' : '');
     fillAvatars(body);
     loadMyCamps();
     var ccb = $('#createCampBtn');
@@ -786,6 +923,34 @@
         if (rr.ok) { forumState.tab = 'home'; pageForum(route()); } else $('#postErr').textContent = rr.message || '发布失败，请稍后重试。';
       });
     });
+    // v2：帖子流加载更多（与首屏同一查询口径，offset 递进；不足一页即收起按钮）
+    var moreBtn = $('#morePostsBtn');
+    if (moreBtn) {
+      var postOffset = 20;
+      moreBtn.addEventListener('click', async function () {
+        moreBtn.disabled = true; moreBtn.textContent = '正在加载…';
+        var url = '/forum/posts?limit=20&offset=' + postOffset + (forumState.board ? '&board=' + encodeURIComponent(forumState.board) : '') + (forumState.campId ? '&campId=' + encodeURIComponent(forumState.campId) : '');
+        var rr = await api(url, { auth: loggedIn() });
+        var feed = $('#postFeed');
+        if (rr.ok && feed) {
+          var more = (rr.data && rr.data.posts) || [];
+          feed.insertAdjacentHTML('beforeend', more.map(postItemHtml).join(''));
+          fillAvatars(feed);
+          postOffset += more.length;
+          if (more.length < 20) { moreBtn.parentElement.style.display = 'none'; }
+          else { moreBtn.disabled = false; moreBtn.textContent = '加载更多'; }
+        } else { moreBtn.disabled = false; moreBtn.textContent = '加载失败，点此重试'; }
+      });
+    }
+    // v2：发帖 FAB 与底部发帖钮——打开发帖框并滚到其位置
+    function openCompose() {
+      var b = $('#newPostBtn'); if (!b) return;
+      if (!$('#postForm')) b.click();
+      var box = $('#composeBox'); if (box && box.scrollIntoView) box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    var fab = $('#fabPost');
+    if (fab) fab.addEventListener('click', openCompose);
+    if (composeWanted) { composeWanted = false; setTimeout(openCompose, 60); }
   }
   // 外站精选：GET /forum/external {posts:[{id,platform,title,summary,url,authorName,publishedAt...}]}（以服务端 external.js 回包为准）
   async function loadExternalHighlights() {
@@ -793,15 +958,24 @@
     var r = await api('/forum/external?limit=10', { auth: false });
     var items = r.ok ? ((r.data && (r.data.posts || r.data.items)) || []) : [];
     if (!r.ok) { box.innerHTML = '<p class="err">' + esc(r.message || '精选内容加载失败，请稍后重试。') + '</p>'; return; }
-    if (!Array.isArray(items) || !items.length) { box.innerHTML = '<p class="muted">暂无精选内容。</p>'; return; }
-    box.innerHTML = items.map(function (x) {
+    if (!Array.isArray(items) || !items.length) { box.innerHTML = '<div class="empty-v2"><div class="ev-ico">' + ico('star', 30) + '</div><div class="ev-title">暂无精选内容</div><div class="ev-sub">外站精选会不定期更新，请稍后再来看看。</div></div>'; return; }
+    function extMeta(x, src) {
+      return '<span>来源：' + esc(src) + '</span>' + (x.author_name || x.authorName || x.author ? '<span>作者 ' + esc(x.author_name || x.authorName || x.author) + '</span>' : '') + (x.released_at || x.publishedAt ? '<span>' + esc(fmtTs(x.released_at || x.publishedAt)) + '</span>' : '') + '<span>查看原文 ›</span>';
+    }
+    box.innerHTML = items.map(function (x, xi) {
       var src = x.platform || x.source || '外部平台';
       var url = x.url || x.originalUrl || '#';
+      if (xi === 0) {
+        return '<a class="ext-feature" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer"><span class="ef-band"><span class="ef-plat">' + ico('star', 17) + esc(src) + ' · 精选</span></span>' +
+          '<span class="ef-body"><span class="ef-title">' + esc(x.title || '(无标题)') + '</span>' +
+          (x.summary || x.excerpt ? '<span class="ef-excerpt">' + esc(x.summary || x.excerpt) + '</span>' : '') +
+          '<span class="ef-meta">' + extMeta(x, src) + '</span></span></a>';
+      }
       return '<div class="post-row"><div class="post-main"><span class="tag blue">' + esc(src) + '</span> ' +
         '<a class="post-title" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + esc(x.title || '(无标题)') + '</a>' +
         (x.summary || x.excerpt ? '<div class="post-excerpt">' + esc(x.summary || x.excerpt) + '</div>' : '') +
-        '<div class="post-stats"><span>来源：' + esc(src) + '</span>' + (x.author_name || x.authorName || x.author ? '<span>作者 ' + esc(x.author_name || x.authorName || x.author) + '</span>' : '') + (x.released_at || x.publishedAt ? '<span>' + esc(fmtTs(x.released_at || x.publishedAt)) + '</span>' : '') + '<span><a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">查看原文</a></span></div>' +
-        '</div></div>';
+        '<div class="post-stats">' + extMeta(x, src) + '</div>' +
+        '</div><div class="post-cover bc-general" aria-hidden="true" style="font-size:21px;font-weight:800;">' + esc(String(src).slice(0, 1)) + '</div></div>';
     }).join('');
   }
   // ---------- 营地创建 / 编辑 / 删除（与 App 同接口同规则） ----------
@@ -865,7 +1039,7 @@
     }).join('') + '</div>';
     box.querySelectorAll('[data-campedit]').forEach(function (b) { b.addEventListener('click', function () {
       var c = camps.filter(function (x) { return String(x.id) === b.getAttribute('data-campedit'); })[0];
-      var fb = $('#campFormBox'); if (fb) fb.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      var fb = $('#campFormBox'); if (fb && fb.scrollIntoView) fb.scrollIntoView({ behavior: 'smooth', block: 'center' });
       showCampForm(c || null);
     }); });
     box.querySelectorAll('[data-campdel]').forEach(function (b) { b.addEventListener('click', async function () {
@@ -884,7 +1058,7 @@
     var posts = (r.data && r.data.posts) || [];
     var mine = loggedIn() && c.creator && c.creator.userId != null && Number(c.creator.userId) === Number(myUserId());
     view.innerHTML = '<div class="card"><p style="margin-top:0;"><a href="#/forum">← 返回论坛</a></p>' +
-      '<div class="row"><span class="brand-mark" style="width:44px;height:44px;border-radius:12px;font-size:16px;">营</span>' +
+      '<div class="row"><span class="brand-mark" style="width:44px;height:44px;border-radius:12px;font-size:16px;background:linear-gradient(120deg,#1d4ed8,#38bdf8);">营</span>' +
       '<span class="grow"><strong style="font-size:19px;">' + esc(c.name || '营地') + '</strong> ' + campStatusTag(c) + '<br>' +
       '<span class="muted small">成员 ' + esc(c.memberCount || 0) + ' · 帖子 ' + esc(c.postCount || 0) + (c.creator && c.creator.displayName ? ' · 创建者 ' + esc(c.creator.displayName) : '') + '</span></span></div>' +
       (c.description ? '<p style="margin:12px 0 0;">' + esc(c.description) + '</p>' : '') +
@@ -921,14 +1095,15 @@
     var r = await api('/forum/users/' + encodeURIComponent(userId) + '/profile', { auth: loggedIn() });
     if (!r.ok) { view.innerHTML = '<div class="card"><h2>个人主页</h2><p class="err">' + esc(r.message) + '</p></div>'; return; }
     var d = r.data || {}, u = d.user || {}, st = d.stats || {};
-    view.innerHTML = '<div class="card"><div class="row"><span id="fuAvatar"><span class="avatar-ph">' + esc((u.name || 'Q').slice(0, 1)) + '</span></span>' +
-      '<span class="grow"><strong style="font-size:17px;">' + esc(u.name || '用户') + '</strong><br><span class="muted small">' + (u.joinedAt ? '加入于 ' + esc(fmtTs(u.joinedAt)) + ' · ' : '') + '发帖 ' + esc(st.posts || 0) + ' · 评价 ' + esc(st.comments || 0) + '</span></span></div></div>' +
+    view.innerHTML = '<div class="profile-head"><div class="ph-cover"></div><div class="ph-body"><div class="ph-row"><span class="ph-avatar" id="fuAvatar"><span class="avatar-ph">' + esc((u.name || 'Q').slice(0, 1)) + '</span></span>' +
+      '<span><span class="ph-name">' + esc(u.name || '用户') + '</span><br><span class="ph-sub">' + (u.joinedAt ? '加入于 ' + esc(fmtTs(u.joinedAt)) : '') + '</span></span></div>' +
+      '<div class="ph-stats"><span><span class="n">' + esc(st.posts || 0) + '</span><br><span class="l">发帖</span></span><span><span class="n">' + esc(st.comments || 0) + '</span><br><span class="l">评价</span></span></div></div></div>' +
       '<div class="card"><h2>发布的帖子</h2><div class="list">' + ((d.posts || []).length ? d.posts.map(postItemHtml).join('') : '<p class="muted">暂无帖子。</p>') + '</div></div>' +
       '<div class="card"><h2>发表的评价</h2><div class="list">' + ((d.comments || []).length ? d.comments.map(function (c) {
         return '<div class="item"><span class="grow"><a href="#/forum/post/' + esc(c.postId) + '"><strong>' + esc(c.postTitle || '帖子') + '</strong></a><br><span class="muted">' + esc(c.content) + '</span><br><span class="muted small">' + esc(fmtTs(c.createdAt)) + '</span></span></div>';
       }).join('') : '<p class="muted">暂无评价。</p>') + '</div></div>';
     fillAvatars(view);
-    showAvatar($('#fuAvatar'), '/profile/' + encodeURIComponent(userId) + '/avatar', (u && u.avatarUpdatedAt) || '', 44);
+    showAvatar($('#fuAvatar'), '/profile/' + encodeURIComponent(userId) + '/avatar', (u && u.avatarUpdatedAt) || '', 76);
   }
   async function forumPostPage(id) {
     await probeOwner();
@@ -940,11 +1115,11 @@
     var reward = p.reward || null;
     var owner = isSiteOwner();
     view.innerHTML = '<div class="card"><p style="margin-top:0;"><a href="#/forum">← 返回论坛</a></p>' +
-      '<h2 style="font-size:21px;line-height:1.4;margin-bottom:10px;">' + esc(p.title || '(无标题)') + postStatusTag(p) + '</h2>' +
+      '<h2 style="font-size:23px;line-height:1.42;margin-bottom:12px;letter-spacing:.2px;">' + esc(p.title || '(无标题)') + postStatusTag(p) + '</h2>' +
       '<div class="post-author" style="font-size:13.5px;">' + avatarSlotHtml(authorId(p), '', true, authorName(p), 30) +
       '<a href="#/forum/user/' + esc(authorId(p)) + '"><strong style="color:var(--ink);">' + esc(authorName(p)) + '</strong></a><span class="faint">' + esc(fmtTs(p.createdAt)) + '</span></div>' +
       '<div style="white-space:pre-wrap;word-break:break-word;line-height:1.75;margin-top:10px;">' + esc(p.content || '') + '</div>' +
-      '<div class="post-stats" style="margin-top:14px;"><span>点赞 ' + esc(p.likeCount || 0) + '</span><span>分享 ' + esc(p.shareCount || 0) + '</span><span>浏览 ' + esc(p.viewCount || 0) + '</span><span>回复 ' + esc(p.replyCount != null ? p.replyCount : replies.length) + '</span></div>' +
+      '<div class="post-stats" style="margin-top:16px;font-size:13px;"><span class="ps">' + ico('heart', 16) + '点赞 ' + esc(p.likeCount || 0) + '</span><span class="ps">' + ico('reply', 16) + '回复 ' + esc(p.replyCount != null ? p.replyCount : replies.length) + '</span><span class="ps">' + ico('eye', 16) + '浏览 ' + esc(p.viewCount || 0) + '</span><span class="ps">分享 ' + esc(p.shareCount || 0) + '</span></div>' +
       '<p class="row wrap" style="margin-top:12px;">' +
       '<button class="ghost" id="likeBtn" type="button">' + (p.likedByMe ? '已点赞' : '点赞') + '（' + esc(p.likeCount || 0) + '）</button>' +
       '<button class="ghost" id="shareBtn" type="button">分享（' + esc(p.shareCount || 0) + '）</button>' +
@@ -1027,7 +1202,7 @@
     chatActivePeer = '';
     view.innerHTML = '<div class="page-title">好友与会话</div><div class="chat-shell mode-list">' +
       '<div class="chat-side">' +
-      '<div class="card"><h2>会话</h2><div id="convList"><p class="muted">正在加载…</p></div></div>' +
+      '<div class="card"><h2>会话</h2><div id="convList">' + sklRows(3) + '</div></div>' +
       '<div class="card"><h2>找好友</h2>' +
       '<form class="row" id="friendSearch" style="margin-bottom:8px;"><input class="grow" name="q" placeholder="输入账户 ID 或邮箱精确搜索"><button class="ghost" type="submit">搜索</button></form>' +
       '<div id="searchOut"></div></div>' +
@@ -1142,7 +1317,7 @@
     if (String(peerId) === 'support') { location.hash = '#/support'; return; }
     chatActivePeer = String(peerId);
     view.innerHTML = '<div class="chat-shell mode-chat">' +
-      '<div class="chat-side"><div class="card"><h2>会话</h2><div id="convList"><p class="muted">正在加载…</p></div>' +
+      '<div class="chat-side"><div class="card"><h2>会话</h2><div id="convList">' + sklRows(3) + '</div>' +
       '<p style="margin:12px 0 0;"><a class="ghost" href="#/friends" style="display:block;text-align:center;">管理好友与申请</a></p></div></div>' +
       '<div class="chat-main"><div class="card"><div class="row"><a class="ghost" href="#/friends">‹ 会话</a><span id="chatPeerAvatar"></span><strong id="chatPeerName" style="font-size:16.5px;">聊天</strong></div>' +
       '<p class="notice" style="margin-top:12px;">' + CHAT_DISCLOSURE + '</p>' +
@@ -1710,10 +1885,10 @@
     var nick = p.nickname || p.effectiveNickname || '';
     if (nick) saveSession({ nickname: nick, username: p.username || '', email: p.email || '', userId: p.userId }, !!localStorage.getItem('qf_access_token')), renderIdentity();
     var uid = p.userId != null ? p.userId : myUserId();
-    view.innerHTML = '<div class="card"><div class="row"><span id="meAvatar"><span class="avatar-ph">' + esc((nick || 'Q').slice(0, 1)) + '</span></span>' +
-      '<span class="grow"><strong style="font-size:17px;">' + esc(nick || '用户') + '</strong><br><span class="muted small">账户 ID：' + esc(p.username || '—') + '</span></span></div>' +
-      '<table class="kv" style="margin-top:10px;"><tr><td>邮箱</td><td>' + esc(p.email || meBasic().email || '—') + '</td></tr>' +
-      '<tr><td>我的积分</td><td>' + (pts.ok ? esc(pts.data && pts.data.balance != null ? pts.data.balance : '—') + ' 分（<a href="#/points">查看明细</a>）' : '加载失败') + '</td></tr></table></div>' +
+    view.innerHTML = '<div class="profile-head"><div class="ph-cover"></div><div class="ph-body"><div class="ph-row"><span class="ph-avatar" id="meAvatar"><span class="avatar-ph">' + esc((nick || 'Q').slice(0, 1)) + '</span></span>' +
+      '<span><span class="ph-name">' + esc(nick || '用户') + '</span><br><span class="ph-sub">账户 ID：' + esc(p.username || '—') + '</span></span></div>' +
+      '<table class="kv" style="margin-top:14px;"><tr><td>邮箱</td><td>' + esc(p.email || meBasic().email || '—') + '</td></tr>' +
+      '<tr><td>我的积分</td><td>' + (pts.ok ? esc(pts.data && pts.data.balance != null ? pts.data.balance : '—') + ' 分（<a href="#/points">查看明细</a>）' : '加载失败') + '</td></tr></table></div></div>' +
       '<div class="card"><h2>编辑资料</h2><form class="stack" id="nickForm"><label>昵称<input name="nickname" value="' + esc(nick) + '" maxlength="32" required></label>' +
       '<div class="err" id="nickErr"></div><div class="ok" id="nickOk"></div><button class="primary" type="submit">保存昵称</button></form>' +
       '<h3>更换头像</h3><p class="row wrap"><input type="file" id="avatarFile" accept="image/png,image/jpeg,image/webp,image/gif"><button class="ghost" id="avatarUpload" type="button">上传头像</button></p>' +
@@ -1721,7 +1896,7 @@
       '<div class="card"><h2>我的个人二维码</h2><div id="qrBox"><p class="muted">正在生成…</p></div><p class="muted small">二维码内容为您的账户 ID，好友可扫码后按账户 ID 精确搜索添加您。</p></div>' +
       '<div class="card"><h2>我的论坛主页</h2><p class="muted">查看公开个人主页：' + (uid ? '<a href="#/forum/user/' + esc(uid) + '">前往我的个人主页</a>' : '—') + '</p></div>' +
       '<div class="card"><h2>意见反馈</h2><p class="muted">问题与建议直达维护者：<a href="#/feedback">前往意见反馈</a>；即时答疑可咨询<a href="#/support">智能客服</a>。</p></div>';
-    if (p.hasAvatar) showAvatar($('#meAvatar'), '/profile/avatar', myAvatarVer, 44);
+    if (p.hasAvatar) showAvatar($('#meAvatar'), '/profile/avatar', myAvatarVer, 76);
     renderQr(uid);
     $('#nickForm').addEventListener('submit', async function (ev) {
       ev.preventDefault();
@@ -1744,7 +1919,7 @@
           if (rr.data && rr.data.avatarUpdatedAt) myAvatarVer = rr.data.avatarUpdatedAt;
           else myAvatarVer = Math.floor(Date.now() / 1000);
           avatarBust++;
-          showAvatar($('#meAvatar'), '/profile/avatar', myAvatarVer, 44);
+          showAvatar($('#meAvatar'), '/profile/avatar', myAvatarVer, 76);
           renderIdentity();
           st.className = 'small ok'; st.textContent = '头像已更新。';
         } else if (rr.code === 'AVATAR_TOO_LARGE') {
