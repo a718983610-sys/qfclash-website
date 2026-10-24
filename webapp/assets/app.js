@@ -283,7 +283,17 @@
   }, { passive: true });
   var composeWanted = false; // 底部「发帖」钮：先到论坛首页，再自动打开发帖框
   var tabPostBtn = $('#tabPost');
-  if (tabPostBtn) tabPostBtn.addEventListener('click', function () { composeWanted = true; });
+  if (tabPostBtn) tabPostBtn.addEventListener('click', function () {
+    composeWanted = true;
+    // 发帖框只在论坛首页页签内：先切回该页签，保证标志必被 pageForum 消费。
+    forumState.tab = 'home';
+    // 已在论坛首页路由时点它，锚点 hash 不变、不会触发 hashchange 重渲染，
+    // 标志无人消费＝死点击（且残留标志会让下次进论坛页迟到弹框）。同路由
+    // 直接重渲染论坛页，由 pageForum 末尾消费标志打开发帖框并清标志；
+    // 跨页时不干预，仍走锚点跳转＋hashchange 的原路径。
+    var r = route();
+    if (r.name === 'forum' && !r.arg) guardPage(pageForum(r));
+  });
   // 搜索层：真实能力只有好友精确搜索（与好友页同一接口），另附快捷入口；
   // 不做无服务端支撑的假搜索。
   var searchOverlay = null;
