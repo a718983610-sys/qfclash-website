@@ -953,7 +953,7 @@
     var label = p.status === 'pending' ? '审核中' : p.status === 'rejected' ? '未通过' : p.status === 'deleted' ? '已删除' : p.status;
     return ' <span class="tag ' + (p.status === 'pending' ? 'blue' : 'red') + '">' + esc(label) + '</span>';
   }
-  function postItemHtml(p) {
+  function postItemHtml(p, opts) {
     var excerpt = String(p.content || '').replace(/\s+/g, ' ').slice(0, 110);
     var aid = authorId(p), aname = authorName(p);
     var bm = boardMeta(p.board || '');
@@ -968,7 +968,8 @@
       '<div class="post-stats">' +
       '<button type="button" class="ps ps-act' + (liked ? ' liked' : '') + '" data-like-btn aria-pressed="' + (liked ? 'true' : 'false') + '" aria-label="点赞">' + ico('heart', 15) + '<span data-like-count>' + esc(p.likeCount || 0) + '</span></button>' +
       '<button type="button" class="ps ps-act" data-cmt-btn aria-label="评论">' + ico('reply', 15) + '<span data-reply-count>' + esc(p.replyCount || 0) + '</span></button>' +
-      '<span class="ps">' + ico('eye', 15) + esc(p.viewCount || 0) + '</span></div>' +
+      '<span class="ps">' + ico('eye', 15) + esc(p.viewCount || 0) + '</span>' +
+      (opts && opts.mineActions ? '<button type="button" class="ps ps-act" data-delown-btn aria-label="删除" style="color:var(--danger);">删除</button>' : '') + '</div>' +
       '<div class="post-cmtbox" data-cmtbox hidden></div>' +
       '<div class="post-note" data-card-note role="status"></div>' +
       '</div><div class="post-cover bc-' + bm.cls + '" aria-hidden="true">' + ico(bm.ico, 30) + '</div></div>';
@@ -983,6 +984,14 @@
     if (!n) return;
     n.textContent = msg || '';
     n.className = 'post-note ' + (ok ? 'ok' : 'err');
+  }
+  // 作者本人删帖（「我的帖子」卡片）：站内确认弹窗 → POST /forum/posts/:id/delete（仅作者，服务端校验）
+  async function deleteOwnCardPost(card) {
+    var id = card.getAttribute('data-post');
+    if (!await appConfirmDlg('删除帖子', '确定删除这篇帖子吗？删除后帖子不可见，此操作不可恢复。', true)) return;
+    var rr = await api('/forum/posts/' + encodeURIComponent(id) + '/delete', { method: 'POST', body: {} });
+    if (rr.ok) { appToast('帖子已删除。'); pageForum(route()); }
+    else cardNote(card, rr.message || '删除失败，请稍后重试。', false);
   }
   async function toggleCardLike(card, btn) {
     if (!loggedIn()) { location.hash = '#/login'; return; }
@@ -1079,6 +1088,8 @@
       if (likeBtn && card.contains(likeBtn)) { toggleCardLike(card, likeBtn); return; }
       var cmtBtn = t.closest('[data-cmt-btn]');
       if (cmtBtn && card.contains(cmtBtn)) { toggleCardComment(card); return; }
+      var delOwnBtn = t.closest('[data-delown-btn]');
+      if (delOwnBtn && card.contains(delOwnBtn)) { deleteOwnCardPost(card); return; }
       var boardLink = t.closest('[data-card-board]');
       if (boardLink && card.contains(boardLink)) {
         e.preventDefault();
@@ -1207,7 +1218,7 @@
       var hd = home.data || {};
       if (forumState.tab === 'mine') {
         var apps = hd.rewardApplications || [];
-        body.innerHTML = '<div class="card"><h2>我的帖子</h2><div class="list">' + ((hd.posts || []).length ? hd.posts.map(postItemHtml).join('') : '<p class="muted">暂无帖子。</p>') + '</div></div>' +
+        body.innerHTML = '<div class="card"><h2>我的帖子</h2><div class="list">' + ((hd.posts || []).length ? hd.posts.map(function (p) { return postItemHtml(p, { mineActions: true }); }).join('') : '<p class="muted">暂无帖子。</p>') + '</div></div>' +
           '<div class="card"><h2>千赞奖励申请</h2>' + (apps.length ? '<div class="list">' + apps.map(function (a) {
             return '<div class="item"><span class="grow"><strong>' + esc(a.postTitle || ('帖子 #' + a.postId)) + '</strong><br><span class="muted small">申请时获赞 ' + esc(a.likeCountAtApply) + ' · 状态：' + esc(a.state === 'pending' ? '审核中' : a.state === 'approved' ? '已通过' : a.state === 'rejected' ? '未通过' : a.state) + ' · ' + esc(fmtTs(a.createdAt)) + (a.rejectReason ? ' · ' + esc(a.rejectReason) : '') + '</span></span></div>';
           }).join('') + '</div>' : '<p class="muted">暂无申请。帖子获赞达到 1000 后，可在帖子详情页提交千赞奖励申请。</p>') + '</div>';
@@ -1551,6 +1562,7 @@
     var replies = (r.data && r.data.replies) || [];
     var reward = p.reward || null;
     var owner = isSiteOwner();
+    var mine = loggedIn() && authorId(p) !== '' && Number(authorId(p)) === Number(myUserId());
     view.innerHTML = '<div class="card"><p style="margin-top:0;"><a href="#/forum">← 返回论坛</a></p>' +
       '<h2 style="font-size:23px;line-height:1.42;margin-bottom:12px;letter-spacing:.2px;">' + esc(p.title || '(无标题)') + postStatusTag(p) + '</h2>' +
       '<div class="post-author" style="font-size:13.5px;">' + avatarSlotHtml(authorId(p), '', true, authorName(p), 30) +
@@ -1561,7 +1573,8 @@
       '<button class="ghost" id="likeBtn" type="button">' + (p.likedByMe ? '已点赞' : '点赞') + '（' + esc(p.likeCount || 0) + '）</button>' +
       '<button class="ghost" id="shareBtn" type="button">分享（' + esc(p.shareCount || 0) + '）</button>' +
       (loggedIn() ? '<button class="ghost" id="reportBtn" type="button">举报</button>' : '') +
-      (owner ? '<button class="ghost" id="ownerDelPostBtn" type="button" style="color:var(--danger);border-color:#f0c4c4;">删除帖子（站长）</button>' : '') +
+      (mine ? '<button class="ghost" id="delOwnPostBtn" type="button" style="color:var(--danger);border-color:#f0c4c4;">删除</button>' : '') +
+      (owner && !mine ? '<button class="ghost" id="ownerDelPostBtn" type="button" style="color:var(--danger);border-color:#f0c4c4;">删除帖子（站长）</button>' : '') +
       (reward && reward.eligible ? '<button class="primary" id="rewardBtn" type="button">申请千赞奖励</button>' : '') +
       (reward && reward.state && reward.state !== 'none' ? '<span class="muted small">千赞奖励申请状态：' + esc(reward.state === 'pending' ? '审核中' : reward.state === 'approved' ? '已通过' : reward.state) + '</span>' : '') +
       '</p><p class="small" id="postActionSt" role="status"></p></div>' +
@@ -1584,6 +1597,13 @@
       if (!f) return;
       var rr = await ownerDo('/owner/forum/post/' + encodeURIComponent(id) + '/delete', f, '帖子已删除。');
       if (rr) location.hash = '#/forum';
+    });
+    var dop = $('#delOwnPostBtn');
+    if (dop) dop.addEventListener('click', async function () {
+      if (!await appConfirmDlg('删除帖子', '确定删除帖子「' + (p.title || '') + '」吗？删除后帖子不可见，此操作不可恢复。', true)) return;
+      var rr = await api('/forum/posts/' + encodeURIComponent(id) + '/delete', { method: 'POST', body: {} });
+      if (rr.ok) { appToast('帖子已删除。'); location.hash = '#/forum'; }
+      else { st.textContent = rr.message || '删除失败，请稍后重试。'; st.className = 'small err'; }
     });
     view.querySelectorAll('[data-owndelreply]').forEach(function (b) { b.addEventListener('click', async function () {
       var f = await ownerConfirm({ title: '删除回复（站长）', danger: true, body: '您将以站长身份删除这条回复。删除后回复不可见，此操作记录在管理审计中。' });
