@@ -334,7 +334,7 @@
       out.querySelectorAll('[data-ssadd]').forEach(function (b) { b.addEventListener('click', async function () {
         var rr = await api('/friends/request', { method: 'POST', body: { userId: Number(b.getAttribute('data-ssadd')) } });
         b.textContent = rr.ok ? '已发送' : '失败'; b.disabled = true;
-        if (!rr.ok) alert(rr.message || '发送失败，请稍后重试。');
+        if (!rr.ok) appToast(rr.message || '发送失败，请稍后重试。');
       }); });
     });
   }
@@ -1188,7 +1188,7 @@
     box.querySelectorAll('[data-joincamp]').forEach(function (b) { b.addEventListener('click', async function () {
       var joined = b.getAttribute('data-joined') === '1';
       var rr = await api('/forum/camps/' + encodeURIComponent(b.getAttribute('data-joincamp')) + '/join', { method: 'POST', body: { joined: !joined } });
-      if (rr.ok) forumCampsRankPage(); else alert(rr.message || '操作失败，请稍后重试。');
+      if (rr.ok) forumCampsRankPage(); else appToast(rr.message || '操作失败，请稍后重试。');
     }); });
   }
   async function pageForum(r) {
@@ -1479,9 +1479,9 @@
       showCampForm(c || null);
     }); });
     box.querySelectorAll('[data-campdel]').forEach(function (b) { b.addEventListener('click', async function () {
-      if (!confirm('确定删除这个营地吗？该营地尚未上线，删除后不可恢复。')) return;
+      if (!await appConfirmDlg('删除营地', '确定删除这个营地吗？该营地尚未上线，删除后不可恢复。', true)) return;
       var rr = await api('/forum/camps/' + encodeURIComponent(b.getAttribute('data-campdel')), { method: 'DELETE' });
-      if (rr.ok) loadMyCamps(); else alert(rr.message || '删除失败，请稍后重试。');
+      if (rr.ok) loadMyCamps(); else appToast(rr.message || '删除失败，请稍后重试。');
     }); });
   }
 
@@ -1510,7 +1510,7 @@
     var jb = $('#campJoinBtn');
     if (jb) jb.addEventListener('click', async function () {
       var rr = await api('/forum/camps/' + encodeURIComponent(campId) + '/join', { method: 'POST', body: { joined: !c.joined } });
-      if (rr.ok) forumCampPage(campId); else alert(rr.message || '操作失败，请稍后重试。');
+      if (rr.ok) forumCampPage(campId); else appToast(rr.message || '操作失败，请稍后重试。');
     });
     var pb = $('#campPostsBtn');
     if (pb) pb.addEventListener('click', function () { forumState.campId = String(campId); forumState.tab = 'home'; location.hash = '#/forum'; pageForum(route()); });
@@ -1709,7 +1709,7 @@
     }).join('') + '</div>' : '<p class="muted small">暂无好友。可通过上方搜索添加。</p>');
     fillAvatars(box);
     box.querySelectorAll('[data-del]').forEach(function (b) { b.addEventListener('click', async function () {
-      if (!confirm('确定删除该好友吗？删除后将无法继续聊天。')) return;
+      if (!await appConfirmDlg('删除好友', '确定删除该好友吗？删除后将无法继续聊天。', true)) return;
       var rr = await api('/friends/' + encodeURIComponent(b.getAttribute('data-del')), { method: 'DELETE' }); friendActionErr = rr.ok ? '' : (rr.message || '删除失败，请稍后重试。'); loadFriends();
     }); });
   }
@@ -2178,7 +2178,7 @@
     view.querySelectorAll('[data-pkdel]').forEach(function (b) { b.addEventListener('click', async function () {
       var vb = secVerifyBody('pk', $('#secPkPwd').value);
       if (!vb) { secSetMsg('secPkMsg', '请先完成身份验证：输入验证密码，或使用通行密钥验证。', false); return; }
-      if (!confirm('确定删除这个通行密钥吗？删除后将无法再用它登录或验证。')) return;
+      if (!await appConfirmDlg('删除通行密钥', '确定删除这个通行密钥吗？删除后将无法再用它登录或验证。', true)) return;
       var rr = await api('/passkeys/' + encodeURIComponent(b.getAttribute('data-pkdel')), { method: 'DELETE', body: vb });
       secSetMsg('secPkMsg', rr.ok ? (rr.message || '通行密钥已删除。') : (rr.message || '删除失败，请稍后重试。'), rr.ok);
       if (rr.ok) { secReauthTokens.pk = ''; setTimeout(pageSecurity, 800); }
@@ -2577,6 +2577,38 @@
   function ownerDenied() {
     view.innerHTML = '<div class="card"><h2>站长管理台</h2><p class="muted">当前账号没有管理权限。如需协助，请通过智能客服联系维护者。</p></div>';
   }
+  // ---------- 站内提示组件（替代浏览器原生 alert/confirm，全站统一） ----------
+  function appToast(msg) {
+    var t = el('<div class="app-toast" role="status">' + esc(msg) + '</div>');
+    document.body.appendChild(t);
+    setTimeout(function () { t.classList.add('show'); }, 10);
+    setTimeout(function () { t.classList.remove('show'); setTimeout(function () { t.remove(); }, 300); }, 3400);
+  }
+  function appNotice(title, text) {
+    return new Promise(function (resolve) {
+      var ov = el('<div class="own-overlay"><div class="own-dialog" role="dialog" aria-modal="true"><h3>' + esc(title) + '</h3><p style="white-space:pre-line;">' + esc(text) + '</p><div class="row-end"><button type="button" class="primary" data-act="ok">知道了</button></div></div></div>');
+      document.body.appendChild(ov);
+      function close() { ov.remove(); resolve(); }
+      ov.addEventListener('click', function (ev) { if (ev.target === ov) close(); });
+      ov.querySelector('[data-act="ok"]').addEventListener('click', close);
+    });
+  }
+  function appConfirmDlg(title, body, danger) {
+    return new Promise(function (resolve) {
+      var ov = el('<div class="own-overlay"><div class="own-dialog" role="dialog" aria-modal="true"><h3>' + esc(title) + '</h3><p>' + esc(body) + '</p><div class="row-end"><button type="button" class="ghost" data-act="no">取消</button><button type="button" class="' + (danger ? 'own-danger' : 'primary') + '" data-act="yes">确定</button></div></div></div>');
+      document.body.appendChild(ov);
+      function close(v) { ov.remove(); resolve(v); }
+      ov.addEventListener('click', function (ev) { if (ev.target === ov) close(false); });
+      ov.querySelector('[data-act="no"]').addEventListener('click', function () { close(false); });
+      ov.querySelector('[data-act="yes"]').addEventListener('click', function () { close(true); });
+    });
+  }
+  // ownerConfirm 弹窗内的表单校验提示位：collect() 校验不过时调用并 return null。
+  function ownFieldErr(ov, msg) {
+    var e = ov.querySelector('.own-err');
+    if (e) { e.textContent = msg; e.style.display = ''; }
+  }
+
   // 单步确认弹窗：讲清对象与后果，站长核对后点「确认无误」即执行，不再输
   // 登录密码复核（用户 2026-10-24 20:39 拍板；服务端站长闸已同步改为只验
   // body.confirm === true，审计留痕照旧）。返回业务字段 + { confirm:true }
@@ -2586,6 +2618,7 @@
       var ov = el('<div class="own-overlay"><div class="own-dialog" role="dialog" aria-modal="true">' +
         '<h3>' + esc(opts.title) + '</h3><p>' + esc(opts.body) + '</p>' +
         (opts.fieldsHtml || '') +
+        '<p class="own-err" style="display:none"></p>' +
         '<p class="muted small">该操作将记录在管理审计中。请核对无误后再执行。</p>' +
         '<div class="row-end"><button type="button" class="ghost" data-act="cancel">取消</button>' +
         '<button type="button" class="' + (opts.danger ? 'own-danger' : 'primary') + '" data-act="go">确认无误</button></div></div></div>');
@@ -2604,8 +2637,8 @@
   }
   async function ownerDo(path, body, doneMsg) {
     var r = await api(path, { method: 'POST', body: body });
-    if (!r.ok) { alert(r.message || '操作失败，请稍后重试。'); return null; }
-    if (doneMsg) alert(doneMsg);
+    if (!r.ok) { appToast(r.message || '操作失败，请稍后重试。'); return null; }
+    if (doneMsg) appToast(doneMsg);
     return r.data;
   }
   function banBadge(u) {
@@ -2685,8 +2718,8 @@
       var f = await ownerConfirm({ title: '查看完整邮箱', body: '您将查看该用户的完整邮箱地址。此操作将记录在管理审计中（记录不含邮箱本身）。' });
       if (!f) return;
       var vr = await api('/owner/users/' + uid + '/view-email', { method: 'POST', body: f });
-      if (!vr.ok) return alert(vr.message || '查看失败，请稍后重试。');
-      alert('该用户的完整邮箱：' + vr.data.email);
+      if (!vr.ok) { appToast(vr.message || '查看失败，请稍后重试。'); return; }
+      appNotice('完整邮箱', '该用户的完整邮箱：' + vr.data.email);
     });
     renderOwnerActions(uid, b);
     renderOwnerTabs(uid);
@@ -2710,7 +2743,7 @@
         title: '替用户设置新密码', danger: true,
         body: '您将为该用户设置一个新密码。执行后：该用户在所有设备上的登录状态将被退出；如其密码处于冻结状态将一并解除；系统会发邮件通知该用户。',
         fieldsHtml: '<label for="fNewPw">新密码（8 至 72 位）</label><input id="fNewPw" type="text" autocomplete="off">',
-        collect: function (ov) { var v = ov.querySelector('#fNewPw').value; if (v.length < 8 || v.length > 72) { alert('新密码长度须为 8 至 72 位。'); return null; } return { newPassword: v }; },
+        collect: function (ov) { var v = ov.querySelector('#fNewPw').value; if (v.length < 8 || v.length > 72) { ownFieldErr(ov, '新密码长度须为 8 至 72 位。'); return null; } return { newPassword: v }; },
       });
       if (!f1) return;
       var r1 = await ownerDo('/owner/users/' + uid + '/set-password', f1);
@@ -2719,7 +2752,7 @@
       var f2 = await ownerConfirm({
         title: '修改昵称', body: '新昵称将即时生效并公开显示，须通过内容审核口径。',
         fieldsHtml: '<label for="fNick">新昵称</label><input id="fNick" type="text" maxlength="24">',
-        collect: function (ov) { var v = ov.querySelector('#fNick').value.trim(); if (!v) { alert('请填写新昵称。'); return null; } return { nickname: v }; },
+        collect: function (ov) { var v = ov.querySelector('#fNick').value.trim(); if (!v) { ownFieldErr(ov, '请填写新昵称。'); return null; } return { nickname: v }; },
       });
       if (!f2) return;
       var r2 = await ownerDo('/owner/users/' + uid + '/profile', f2);
@@ -2729,7 +2762,7 @@
         title: '更换绑定邮箱', danger: true,
         body: '您将把该用户的绑定邮箱更换为新邮箱。执行后：该用户在所有设备上的登录状态将被退出；新邮箱与原邮箱都会收到通知邮件。',
         fieldsHtml: '<label for="fMail">新邮箱</label><input id="fMail" type="email" autocomplete="off">',
-        collect: function (ov) { var v = ov.querySelector('#fMail').value.trim(); if (!v) { alert('请填写新邮箱。'); return null; } return { newEmail: v }; },
+        collect: function (ov) { var v = ov.querySelector('#fMail').value.trim(); if (!v) { ownFieldErr(ov, '请填写新邮箱。'); return null; } return { newEmail: v }; },
       });
       if (!f3) return;
       var r3 = await ownerDo('/owner/users/' + uid + '/change-email', f3);
@@ -2751,7 +2784,7 @@
           var out = { level: ov.querySelector('#fLevel').value, reasonText: ov.querySelector('#fReason').value.trim() || '违反用户协议', alsoBanDevices: ov.querySelector('#fDev').checked };
           if (out.level === 'timed') {
             var days = Number(ov.querySelector('#fDays').value);
-            if (!days || days < 1) { alert('限时封禁请填写封禁天数（至少 1 天）。'); return null; }
+            if (!days || days < 1) { ownFieldErr(ov, '限时封禁请填写封禁天数（至少 1 天）。'); return null; }
             out.durationDays = days;
           }
           return out;
@@ -2826,8 +2859,8 @@
           var f = await ownerConfirm({ title: '查看完整发放信息', body: '您将查看该订单的完整发放信息（收款地址或接收邮箱）。此操作将记录在管理审计中（记录不含具体内容）。' });
           if (!f) return;
           var vr = await api('/owner/users/' + uid + '/view-payout', { method: 'POST', body: { orderId: Number(btn.getAttribute('data-payout')), confirm: true } });
-          if (!vr.ok) return alert(vr.message || '查看失败，请稍后重试。');
-          alert('发放方式：' + (vr.data.payoutMethod || '') + '\n收款地址：' + (vr.data.payoutAddress || '—') + '\n接收邮箱：' + (vr.data.payoutEmail || '—'));
+          if (!vr.ok) { appToast(vr.message || '查看失败，请稍后重试。'); return; }
+          appNotice('完整发放信息', '发放方式：' + (vr.data.payoutMethod || '') + '\n收款地址：' + (vr.data.payoutAddress || '—') + '\n接收邮箱：' + (vr.data.payoutEmail || '—'));
         });
       });
       var lb = $('#ownLedger');
@@ -2895,12 +2928,53 @@
     }
   }
   function reviewButtons(html) { return '<span class="row" style="margin-top:6px;">' + html + '</span>'; }
+  // 驳回理由表单片段（站长 2026-10-24 21:06 令）：字段名按服务端 handler 口径
+  // ——封号申诉为 note（必填），其余审核为 reason；前端一律必填才可提交。
+  function rejectReasonForm(field) {
+    var isNote = field === 'note';
+    var word = isNote ? '备注' : '原因';
+    return {
+      fieldsHtml: '<label for="fReviewReason">驳回' + word + '（必填' + (isNote ? '' : '，将告知提交人') + '）</label><textarea id="fReviewReason" rows="3" maxlength="500" placeholder="请填写驳回' + word + '"></textarea>',
+      collect: function (ov) {
+        var v = ov.querySelector('#fReviewReason').value.trim();
+        if (!v) { ownFieldErr(ov, '驳回必须填写' + word + '。'); return null; }
+        var out = {}; out[field] = v; return out;
+      }
+    };
+  }
+  // 手填兑换码表单片段（站长 2026-10-24 21:07 令）：礼品卡类订单通过时填码
+  // 即时发放，字段 code 与服务端 adminReviewOrder 口径一致；长度口径同服务端
+  //（4–200、无控制字符），前端先拦明显错误。
+  function giftCodeForm() {
+    return {
+      fieldsHtml: '<label for="fGiftCode">兑换码（必填，通过后立即发放给该用户）</label><input id="fGiftCode" type="text" autocomplete="off" maxlength="200" placeholder="输入要发放的兑换码">',
+      collect: function (ov) {
+        var v = ov.querySelector('#fGiftCode').value.trim();
+        if (!v) { ownFieldErr(ov, '请填写兑换码。'); return null; }
+        if (v.length < 4) { ownFieldErr(ov, '兑换码长度不对（至少 4 个字符）。'); return null; }
+        return { code: v };
+      }
+    };
+  }
   async function loadOwnerQueue(kind) {
     var body = $('#ownQBody'); if (!body) return;
     body.innerHTML = '<p class="muted">正在加载…</p>';
-    function decide(path, extra, title, danger) {
+    // opts.reasonField：驳回时的理由字段名（'reason' 默认；封号申诉为 'note'）。
+    // opts.codeField：通过时附手填兑换码表单（礼品卡类订单用，字段 code）。
+    function decide(path, extra, title, danger, opts) {
+      opts = opts || {};
       return async function () {
-        var f = await ownerConfirm({ title: title, body: '请确认对该条目执行此处理。处理结果将记录在管理审计中。', danger: danger });
+        var o = { title: title, body: '请确认对该条目执行此处理。处理结果将记录在管理审计中。', danger: danger };
+        if (extra.decision === 'reject') {
+          var rf = rejectReasonForm(opts.reasonField || 'reason');
+          o.fieldsHtml = rf.fieldsHtml; o.collect = rf.collect;
+          o.body = '驳回必须填写' + ((opts.reasonField === 'note') ? '备注' : '原因') + '。处理结果将记录在管理审计中。';
+        } else if (opts.codeField) {
+          var cf = giftCodeForm();
+          o.fieldsHtml = cf.fieldsHtml; o.collect = cf.collect;
+          o.body = '请填写要发放给该用户的兑换码：通过后立即绑定该码并发放，不再依赖预导入码池。';
+        }
+        var f = await ownerConfirm(o);
         if (!f) return;
         Object.keys(extra).forEach(function (k) { f[k] = extra[k]; });
         var r = await ownerDo(path, f);
@@ -2940,7 +3014,7 @@
           reviewButtons('<button class="primary" data-ap="' + a.id + '">批准（解封）</button><button class="ghost" data-rj="' + a.id + '">驳回</button>');
       }).join('') : '<p class="muted">暂无待审申诉。</p>';
       body.querySelectorAll('[data-ap]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/appeals/' + b.getAttribute('data-ap') + '/review', { decision: 'approve' }, '批准该申诉')); });
-      body.querySelectorAll('[data-rj]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/appeals/' + b.getAttribute('data-rj') + '/review', { decision: 'reject' }, '驳回该申诉', true)); });
+      body.querySelectorAll('[data-rj]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/appeals/' + b.getAttribute('data-rj') + '/review', { decision: 'reject' }, '驳回该申诉', true, { reasonField: 'note' })); });
     } else if (kind === 'recovery') {
       var rr3 = await api('/owner/reviews/recovery?status=pending'); if (!rr3.ok) { body.innerHTML = '<p class="muted">加载失败。</p>'; return; }
       var list3 = (rr3.data && rr3.data.appeals) || [];
@@ -2963,20 +3037,38 @@
         b.addEventListener('click', async function (ev) {
           ev.preventDefault();
           var lr = await api('/owner/reviews/like-composition/' + b.getAttribute('data-likes'));
-          if (!lr.ok) return alert(lr.message || '加载失败。');
+          if (!lr.ok) { appToast(lr.message || '加载失败。'); return; }
           var d = lr.data;
-          alert('点赞构成（脱敏聚合）：\n总赞 ' + d.total + ' ｜ 独立设备 ' + d.distinctDevices + ' ｜ 独立来源 ' + d.distinctIpHashes + '\n单设备最高占比 ' + Math.round(d.topDeviceShare * 100) + '% ｜ 单来源最高占比 ' + Math.round(d.topIpShare * 100) + '%');
+          appNotice('点赞构成（脱敏聚合）', '总赞 ' + d.total + ' ｜ 独立设备 ' + d.distinctDevices + ' ｜ 独立来源 ' + d.distinctIpHashes + '\n单设备最高占比 ' + Math.round(d.topDeviceShare * 100) + '% ｜ 单来源最高占比 ' + Math.round(d.topIpShare * 100) + '%');
         });
       });
     } else if (kind === 'orders') {
       var ro = await api('/owner/reviews/orders'); if (!ro.ok) { body.innerHTML = '<p class="muted">加载失败。</p>'; return; }
       var list5 = ((ro.data && ro.data.orders) || []).filter(function (o) { return o.status === 'pending_review' || o.status === 'pending_payout'; });
+      var byId5 = {}; list5.forEach(function (o) { byId5[o.id] = o; });
       body.innerHTML = list5.length ? list5.map(function (o) {
-        return '<div class="item"><span class="grow"><strong>兑换订单 #' + o.id + '</strong>（用户 ' + o.user_id + '，' + esc(o.product_name || '') + '，' + o.price_points + ' 分，状态 ' + esc(o.status) + '）</span></div>' +
-          reviewButtons('<button class="primary" data-rv="' + o.id + '">审核通过</button><button class="ghost" data-rjo="' + o.id + '">审核驳回</button>');
+        var st = o.status === 'pending_payout' ? '待发放' : '待审核';
+        var acts = o.status === 'pending_payout'
+          ? '<button class="primary" data-paid5="' + o.id + '">标记已发放</button>'
+          : '<button class="primary" data-rv="' + o.id + '">审核通过</button><button class="ghost" data-rjo="' + o.id + '">审核驳回</button>';
+        return '<div class="item"><span class="grow"><strong>兑换订单 #' + o.id + '</strong>（用户 ' + o.user_id + '，' + esc(o.product_name || '') + '，' + o.price_points + ' 分，状态 ' + st + '）</span></div>' +
+          reviewButtons(acts);
       }).join('') : '<p class="muted">暂无待处理订单。</p>';
-      body.querySelectorAll('[data-rv]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/orders/' + b.getAttribute('data-rv') + '/review', { decision: 'approve' }, '审核通过该订单')); });
+      body.querySelectorAll('[data-rv]').forEach(function (b) { b.addEventListener('click', function () {
+        var o = byId5[b.getAttribute('data-rv')]; if (!o) return;
+        var isUsdt = String(o.payout_method || '').toLowerCase() === 'usdt';
+        decide('/owner/reviews/orders/' + o.id + '/review', { decision: 'approve' }, '审核通过该订单', false, { codeField: !isUsdt })();
+      }); });
       body.querySelectorAll('[data-rjo]').forEach(function (b) { b.addEventListener('click', decide('/owner/reviews/orders/' + b.getAttribute('data-rjo') + '/review', { decision: 'reject' }, '驳回该订单', true)); });
+      body.querySelectorAll('[data-paid5]').forEach(function (b) { b.addEventListener('click', async function () {
+        var o = byId5[b.getAttribute('data-paid5')]; if (!o) return;
+        var f = await ownerConfirm({ title: '标记订单 #' + o.id + ' 已发放', body: '请确认您已实际完成打款/发放。标记已发放必须留下可核对的凭证或说明。',
+          fieldsHtml: '<label for="fPaidNote">打款凭证（交易哈希）或说明（必填）</label><input id="fPaidNote" type="text" maxlength="300" placeholder="填写交易哈希或发放说明">',
+          collect: function (ov) { var v = ov.querySelector('#fPaidNote').value.trim(); if (!v) { ownFieldErr(ov, '请填写打款凭证或说明。'); return null; } return { note: v }; } });
+        if (!f) return;
+        var r = await ownerDo('/owner/reviews/orders/' + o.id + '/paid', f, '已标记为已发放。');
+        if (r) loadOwnerQueueSafe(kind);
+      }); });
     }
   }
 
@@ -2992,7 +3084,8 @@
   // ---------- 兑换审核（站长发奖，2026-10-24 用户亲定新页） ----------
   // 契约（服务端线提供，前端按此对接）：
   //   GET  /owner/reviews/redeem            队列，前端按状态分「待审核」「待发放」两组
-  //   POST /owner/reviews/redeem/:id/review { decision:'approve'|'reject', reason?, confirm:true }
+  //   POST /owner/reviews/redeem/:id/review { decision:'approve'|'reject', reason?, code?, confirm:true }
+  //   （礼品卡类 approve 必带站长手填 code 即时绑码发放，服务端 adminReviewOrder 口径）
   //   POST /owner/reviews/redeem/:id/paid   { confirm:true }（实际发放完成后标记）
   // 状态文案与用户端「我的兑换」共用 ORDER_STATUS，不另造词；确认弹窗一律走
   // ownerConfirm（单步「确认无误」、不输密码）。驳回须填原因，退分由服务端按
@@ -3051,7 +3144,7 @@
   }
   async function pageOwnerRedeem() {
     view.innerHTML = '<div class="card"><p><a href="#/owner">‹ 返回用户列表</a> · <a href="#/owner/reviews">审核队列</a> · <a href="#/owner/audit">管理审计</a></p><h2>兑换审核</h2>' +
-      '<p class="muted small">在此审核积分兑换订单并发放奖励：审核通过后订单进入「待发放」，实际发放完成后点「标记已发放」；驳回须填写原因，积分将退回用户账户。处理结果记录在管理审计中。</p>' +
+      '<p class="muted small">在此审核积分兑换订单并发放奖励：USDT 订单审核通过后进入「待发放」，实际打款完成后点「标记已发放」；兑换码订单在审核通过时填写兑换码即时发放。驳回须填写原因，积分将退回用户账户。处理结果记录在管理审计中。</p>' +
       '<div id="ownRedeemBody"><p class="muted">正在加载…</p></div></div>';
     loadOwnerRedeemSafe();
   }
@@ -3092,17 +3185,25 @@
     body.querySelectorAll('[data-rdetail]').forEach(function (b) { b.addEventListener('click', function () { var v = byId[b.getAttribute('data-rdetail')]; if (v) showRedeemDetail(v); }); });
     body.querySelectorAll('[data-rapprove]').forEach(function (b) { b.addEventListener('click', async function () {
       var v = byId[b.getAttribute('data-rapprove')]; if (!v) return;
-      var f = await ownerConfirm({ title: '通过兑换订单 #' + v.id, body: '您将通过该兑换订单：' + v.product + '（' + v.points + ' 积分），下单人 ' + (v.nickname || v.username || v.userId) + '。通过后订单进入「待发放」。' });
+      var isUsdt = String(v.methodRaw || '').toLowerCase() === 'usdt';
+      var oc = { title: '通过兑换订单 #' + v.id, body: '' };
+      if (isUsdt) {
+        oc.body = '您将通过该兑换订单：' + v.product + '（' + v.points + ' 积分），下单人 ' + (v.nickname || v.username || v.userId) + '。通过后订单进入「待发放」，实际打款后请点「标记已发放」。';
+      } else {
+        oc.body = '您将通过该兑换订单：' + v.product + '（' + v.points + ' 积分），下单人 ' + (v.nickname || v.username || v.userId) + '。请填写要发放的兑换码，通过后立即绑定该码并发放。';
+        var cf2 = giftCodeForm(); oc.fieldsHtml = cf2.fieldsHtml; oc.collect = cf2.collect;
+      }
+      var f = await ownerConfirm(oc);
       if (!f) return;
       f.decision = 'approve';
-      var rr = await ownerDo('/owner/reviews/redeem/' + encodeURIComponent(v.id) + '/review', f, '已通过，订单进入待发放。');
+      var rr = await ownerDo('/owner/reviews/redeem/' + encodeURIComponent(v.id) + '/review', f, isUsdt ? '已通过，订单进入待发放。' : '已通过，兑换码已发放。');
       if (rr) loadOwnerRedeemSafe();
     }); });
     body.querySelectorAll('[data-rreject]').forEach(function (b) { b.addEventListener('click', async function () {
       var v = byId[b.getAttribute('data-rreject')]; if (!v) return;
       var f = await ownerConfirm({ title: '驳回兑换订单 #' + v.id, danger: true, body: '您将驳回该兑换订单：' + v.product + '（' + v.points + ' 积分），下单人 ' + (v.nickname || v.username || v.userId) + '。驳回后积分将退回该用户账户。',
         fieldsHtml: '<label for="fRejectReason">驳回原因（将向用户展示）</label><input id="fRejectReason" type="text" maxlength="200">',
-        collect: function (ov) { var reason = ov.querySelector('#fRejectReason').value.trim(); if (!reason) { alert('请填写驳回原因。'); return null; } return { reason: reason }; } });
+        collect: function (ov) { var reason = ov.querySelector('#fRejectReason').value.trim(); if (!reason) { ownFieldErr(ov, '请填写驳回原因。'); return null; } return { reason: reason }; } });
       if (!f) return;
       f.decision = 'reject';
       var rr = await ownerDo('/owner/reviews/redeem/' + encodeURIComponent(v.id) + '/review', f, '已驳回，积分将退回用户账户。');
