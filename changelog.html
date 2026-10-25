@@ -18,6 +18,10 @@
   .ver li{margin:5px 0;line-height:1.75}
   .ver p{line-height:1.8;margin:0 0 6px}
   .ver .vlink{margin-top:12px;font-size:14px}
+  .ver-extra[hidden]{display:none}
+  .ver-more-wrap{margin:2px 0 18px;text-align:center}
+  .ver-more-btn{background:#fff;border:1px solid var(--line);color:var(--ink);border-radius:999px;padding:11px 26px;font-size:15px;cursor:pointer;max-width:100%}
+  .ver-more-btn:hover{border-color:var(--blue);color:var(--blue)}
   .crosslinks{margin-top:26px;font-size:15px}
 </style>
 </head>
@@ -113,5 +117,36 @@
 </footer>
 
 <script src="assets/auth.js?v=20261025d"></script>
+<script>
+// 更新日志折叠：最新 10 条直接显示，第 11 条起收进折叠区，点按钮展开/收起。
+// 条目不足 11 条时什么都不加，页面与原来完全一致；脚本失效时全部条目照常显示。
+(function () {
+  var KEEP = 10;
+  var vers = Array.prototype.slice.call(document.querySelectorAll('.doc .ver'));
+  if (vers.length <= KEEP) return;
+  var extra = vers.slice(KEEP);
+  var box = document.createElement('div');
+  box.className = 'ver-extra';
+  box.hidden = true;
+  extra[0].parentNode.insertBefore(box, extra[0]);
+  extra.forEach(function (el) { box.appendChild(el); });
+  var wrap = document.createElement('div');
+  wrap.className = 'ver-more-wrap';
+  var btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'ver-more-btn';
+  var label = '查看更早版本（还有 ' + extra.length + ' 条）';
+  btn.textContent = label;
+  btn.setAttribute('aria-expanded', 'false');
+  btn.addEventListener('click', function () {
+    var open = box.hidden;
+    box.hidden = !open;
+    btn.textContent = open ? '收起更早版本' : label;
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  wrap.appendChild(btn);
+  box.parentNode.insertBefore(wrap, box.nextSibling);
+})();
+</script>
 </body>
 </html>
