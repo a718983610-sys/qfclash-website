@@ -421,7 +421,7 @@
     if (r.name === 'friends') return guardPage(pageFriends());
     if (r.name === 'chat') return guardPage(pageChat(r.arg));
     if (r.name === 'security') return guardPage(pageSecurity());
-    if (r.name === 'support') return guardPage(pageSupport());
+    if (r.name === 'support') return guardPage(loggedIn() ? pageSupport() : pageSupportGuest());
     if (r.name === 'feedback') return guardPage(pageFeedback());
     if (r.name === 'me') return guardPage(pageMe());
     if (r.name === 'owner') return guardPage(pageOwner(r));
@@ -533,7 +533,7 @@
   function authBlockHtml(r) {
     if (r && r.code === 'ACCOUNT_FROZEN') {
       return '<div class="notice"><strong>该账户已被冻结</strong><br>请通过找回密码重置密码，或提交找回申诉，验证通过后即可恢复使用。<br>' +
-        '<span class="row" style="margin-top:8px;"><a class="primary" href="#/reset">找回密码</a><a class="ghost" href="#/appeal/recovery">找回申诉</a></span></div>';
+        '<span class="row" style="margin-top:8px;"><a class="primary" href="#/reset">找回密码</a><a class="ghost" href="#/appeal/recovery">找回申诉</a><a class="ghost" href="#/support">咨询智能客服</a></span></div>';
     }
     if (r && r.code === 'ACCOUNT_BANNED') {
       var until = r.data && r.data.bannedUntil ? fmtTs(r.data.bannedUntil) : '';
@@ -541,7 +541,7 @@
       return '<div class="notice"><strong>' + (perm ? '该用户已被永久封禁' : '该账户已被封禁，解除时间：' + esc(until)) + '</strong> <span id="banAppealEntry">' + appealEntryHtml(null) + '</span>' +
         (r.data && r.data.reason ? '<br>原因：' + esc(r.data.reason) : '') +
         '<br>如需申诉，请提交封禁申诉，审核结果可在申诉状态查询中查看。<br>' +
-        '<span class="row" style="margin-top:8px;"><a class="primary" href="#/appeal/ban">提交封禁申诉</a><a class="ghost" href="#/appeal/status">查询申诉状态</a></span></div>';
+        '<span class="row" style="margin-top:8px;"><a class="primary" href="#/appeal/ban">提交封禁申诉</a><a class="ghost" href="#/appeal/status">查询申诉状态</a><a class="ghost" href="#/support">咨询智能客服</a></span></div>';
     }
     if (r && r.code === 'DEVICE_BANNED') {
       return '<div class="notice"><strong>当前设备已被限制使用</strong><br>' + esc(r.message || '') + '<br>如有疑问，请发送邮件至 a718983610@gmail.com 说明情况。</div>';
@@ -561,7 +561,7 @@
       '<div id="stepUpBox"></div><div id="completionBox"></div>' +
       '<p class="muted small">使用谷歌账号？请通过下方按钮一键登录（与官网相同）。</p>' +
       '<div id="googleBtnHost"><p class="muted small">谷歌登录组件加载中…</p></div>' +
-      '<p class="row wrap" style="margin-top:10px;"><a href="#/reset">忘记密码</a><a href="#/appeal/recovery">邮箱不可用？提交找回申诉</a></p>' +
+      '<p class="row wrap" style="margin-top:10px;"><a href="#/reset">忘记密码</a><a href="#/appeal/recovery">邮箱不可用？提交找回申诉</a><a href="#/support">智能客服（免登录）</a></p>' +
       '<p class="muted small">尚未注册？<a href="#/register">立即注册</a>（与客户端共用同一账号）。</p></div>';
     $('#loginForm').addEventListener('submit', async function (ev) {
       ev.preventDefault();
@@ -2380,6 +2380,231 @@
       var rr = await api('/security/delete-account', { method: 'POST', body: body });
       secSetMsg('secDelMsg', rr.ok ? (rr.message || '注销申请已提交，进入 7 天冷静期。') : (rr.message || '提交失败，请稍后重试。'), rr.ok);
       if (rr.ok) { secReauthTokens.del = ''; setTimeout(pageSecurity, 900); }
+    });
+  }
+
+  // ---------- 游客态智能客服（未登录/封号/冻结可达） ----------
+  // 契约：docs/QFClash-游客客服接口契约-v1.md。游客不用登录令牌，用
+  // 「deviceHash（＝本页 deviceId()，与访客模式同一设备指纹）+ guestToken」
+  // 凭据对；guestToken 只存浏览器本地（qf_guest_support_token），换设备或
+  // 清缓存后旧会话找不回，属预期，不假装能找回。专用 guestFetch 不带登录
+  // 头、不走登录 401 续期；凭据失效（SUPPORT_GUEST_UNAUTHORIZED）时按契约
+  // 重走 session 取新凭据后重试一次，用户无感。
+  var GUEST_TOKEN_KEY = 'qf_guest_support_token';
+  function guestCreds() {
+    return { deviceHash: deviceId(), guestToken: localStorage.getItem(GUEST_TOKEN_KEY) || null };
+  }
+  async function guestFetch(path, opts) {
+    opts = opts || {};
+    var headers = {};
+    if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
+    if (opts.headers) Object.keys(opts.headers).forEach(function (k) { headers[k] = opts.headers[k]; });
+    var res;
+    try {
+      res = await fetchTimeout(API + path, { method: opts.method || 'GET', headers: headers, body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined });
+    } catch (e) {
+      return { ok: false, network: true, message: (e && e.name === 'AbortError') ? '请求超时，请检查网络后重试。' : '网络连接失败，请检查网络后重试。' };
+    }
+    var data = null; try { data = await res.json(); } catch (e) { /* 非 JSON 响应按状态码处理 */ }
+    return { ok: res.ok && !(data && data.ok === false), status: res.status, data: data, code: data && data.code, message: (data && (data.message || data.error)) || (res.ok ? '' : '请求失败（' + res.status + '），请稍后重试。') };
+  }
+  // 进入客服：签发/续用凭据并回当前状态。forceNew=true 先弃旧凭据（401
+  // 后重取走这条路，服务端随即轮换签发，旧凭据即刻失效）。
+  async function guestSession(forceNew) {
+    if (forceNew) localStorage.removeItem(GUEST_TOKEN_KEY);
+    var c = guestCreds();
+    var body = { deviceHash: c.deviceHash };
+    if (c.guestToken) body.guestToken = c.guestToken;
+    var r = await guestFetch('/support/guest/session', { method: 'POST', body: body });
+    if (r.ok && r.data && r.data.guestToken) localStorage.setItem(GUEST_TOKEN_KEY, r.data.guestToken);
+    return r;
+  }
+  // 业务调用：POST 自动注入凭据对，GET 走契约请求头；401 凭据失效重取后重试一次。
+  async function guestApi(path, opts) {
+    opts = opts || {};
+    async function once() {
+      var c = guestCreds();
+      if ((opts.method || 'GET') === 'GET') {
+        var h = { 'x-device-hash': c.deviceHash };
+        if (c.guestToken) h['x-guest-support-token'] = c.guestToken;
+        return guestFetch(path, { method: 'GET', headers: h });
+      }
+      var body = Object.assign({}, opts.body || {}, { deviceHash: c.deviceHash });
+      if (c.guestToken) body.guestToken = c.guestToken;
+      return guestFetch(path, { method: 'POST', body: body });
+    }
+    var r = await once();
+    if (!r.ok && r.code === 'SUPPORT_GUEST_UNAUTHORIZED') {
+      var s = await guestSession(true);
+      if (s.ok) r = await once();
+    }
+    return r;
+  }
+  async function pageSupportGuest() {
+    view.innerHTML = '<div class="card"><div class="row"><span class="brand-mark" style="width:44px;height:44px;border-radius:50%;font-size:15px;">客</span><span class="grow"><strong style="font-size:16.5px;">智能客服</strong><br><span class="muted small">自动回复系统 · 非人工坐席</span></span></div>' +
+      '<p class="notice" style="margin-top:10px;">智能客服会话不使用端对端加密，会话内容将传输至服务器处理，以便为您提供帮助。请勿在会话中发送密码、验证码或其他敏感信息。</p>' +
+      '<p class="small" id="gsMode" role="status">正在进入客服…</p>' +
+      '<div class="chatlog" id="supLog"><div class="bubble">您好，我是智能客服（自动回复系统）。您可以向我咨询账号、积分、论坛与客户端使用方面的问题，我会尽力为您解答；如需人工处理，可点击下方「转人工」。</div></div>' +
+      '<div class="chips">' + ['流量用完了怎么办', '积分如何获得', '账号被冻结了怎么办', '如何加入营地'].map(function (q) { return '<button type="button" class="chip" data-q="' + esc(q) + '">' + esc(q) + '</button>'; }).join('') + '</div>' +
+      '<div id="supOptions"></div><div id="gsSelf"></div><div id="gsVerify"></div>' +
+      '<div class="composer"><textarea id="supInput" placeholder="请输入您的问题" rows="2"></textarea><button class="primary" id="supSend" type="button">发送</button></div>' +
+      '<p class="row" style="margin-top:8px;"><button class="ghost" id="humanBtn" type="button">转人工</button><button class="ghost" id="verifyBtn" type="button">核验账号</button><span class="small" id="supStatus" role="status"></span></p></div>';
+    var sessionId = null, lastMsgId = 0, handedOff = false, askBusy = false, interacted = false;
+    var verified = { linked: false, username: null };
+    var mySeq = ++supportSeq;
+    if (supportTimer) { clearInterval(supportTimer); supportTimer = null; }
+    var log = $('#supLog'), st = $('#supStatus'), mode = $('#gsMode');
+    function addBubble(text, mine, name) {
+      var b = el('<div class="bubble' + (mine ? ' mine' : '') + '"></div>');
+      b.textContent = text;
+      if (name && !mine) { var s = document.createElement('div'); s.className = 'muted small'; s.textContent = name; b.prepend(s); }
+      log.appendChild(b); log.scrollTop = log.scrollHeight;
+    }
+    function renderMode() {
+      if (!mode) return;
+      if (verified.linked) {
+        mode.innerHTML = '<span class="ok">已关联账号：' + esc(verified.username || '') + '</span>（仅核验，未登录）。客服可以按您的账号状态为您答复。';
+      } else {
+        mode.innerHTML = '您正在以未登录状态咨询：可以直接提问；涉及您本人账号状态的问题，请先点下方「核验账号」——<strong>只核验账号，不会登录</strong>，封号、冻结的账号也可以核验。';
+      }
+    }
+    function showOptions(items) {
+      var box = $('#supOptions'); if (!box) return;
+      if (!items || !items.length) { box.innerHTML = ''; return; }
+      box.innerHTML = '<p class="row wrap" style="margin-top:8px;">' + items.map(function (o) { return '<button type="button" class="chip" data-kb="' + esc(o.kbId) + '">' + esc(o.label) + '</button>'; }).join('') +
+        '<button type="button" class="chip" data-notthis="1">不是这些</button></p>';
+      box.querySelectorAll('[data-kb]').forEach(function (b) { b.addEventListener('click', function () { ask('', { kbId: b.getAttribute('data-kb') }); }); });
+      var nb = box.querySelector('[data-notthis]');
+      if (nb) nb.addEventListener('click', function () { ask('', { notThis: true }); });
+    }
+    // 自助路径：目前只认 forgot_password（跳找回密码页）；其余 key 服务端
+    // 口径未定版，不渲染假入口。
+    function showSelfhelp(items) {
+      var box = $('#gsSelf'); if (!box) return;
+      var hasReset = (items || []).some(function (x) { return x && x.key === 'forgot_password'; });
+      box.innerHTML = hasReset ? '<p style="margin-top:8px;"><a class="ghost" href="#/reset">找回密码</a></p>' : '';
+    }
+    function openVerify() {
+      var box = $('#gsVerify'); if (!box || box.dataset.open) return;
+      box.dataset.open = '1';
+      box.innerHTML = '<form class="stack" id="gsVerifyForm" style="margin-top:10px;"><h3 style="margin:0;">核验账号</h3>' +
+        '<p class="muted small" style="margin:0;">只核验账号，不登录，也不会改变您的登录状态。核验通过后，客服可以按您的账号状态为您答复处理。</p>' +
+        '<label>账户 ID 或邮箱<input name="account" autocomplete="username" required></label>' +
+        '<label>登录密码<input name="password" type="password" autocomplete="current-password" required></label>' +
+        '<div class="err" id="gsVerifyErr" role="alert"></div>' +
+        '<span class="row"><button class="primary" type="submit">核验账号</button><button class="ghost" type="button" id="gsVerifyCancel">取消</button></span></form>';
+      $('#gsVerifyCancel').addEventListener('click', function () { box.innerHTML = ''; delete box.dataset.open; });
+      $('#gsVerifyForm').addEventListener('submit', async function (ev) {
+        ev.preventDefault();
+        var unlock = lockSubmit(ev.target); if (!unlock) return;
+        try {
+          var fd = new FormData(ev.target);
+          var r = await guestApi('/support/guest/verify', { method: 'POST', body: { account: String(fd.get('account')).trim(), password: String(fd.get('password')) } });
+          if (mySeq !== supportSeq) return;
+          if (r.ok && r.data && r.data.verified) {
+            verified = { linked: true, username: r.data.username || '' };
+            renderMode();
+            box.innerHTML = ''; delete box.dataset.open;
+            addBubble(r.data.message || '已完成账号核验。现在您可以继续提问，我会按您的账号状态为您答复。', false, '智能客服');
+          } else {
+            var e = $('#gsVerifyErr'); if (e) e.textContent = r.message || '核验未通过，请核对后重试。';
+          }
+        } finally { unlock(); }
+      });
+      var inp = box.querySelector('input[name="account"]'); if (inp) inp.focus();
+    }
+    async function ask(text, extra) {
+      if (askBusy) return;
+      askBusy = true; interacted = true;
+      var sendBtn = $('#supSend'); if (sendBtn) sendBtn.disabled = true;
+      try {
+        extra = extra || {};
+        if (text) addBubble(text, true);
+        var body = Object.assign({ text: text || '' }, extra);
+        if (sessionId) body.sessionId = sessionId;
+        var r = await guestApi('/support/guest/ask', { method: 'POST', body: body });
+        if (mySeq !== supportSeq) return;
+        if (!r.ok) { addBubble(r.message || '客服服务暂时不可用，请稍后重试。', false, '智能客服'); return; }
+        var d = r.data || {};
+        if (d.sessionId) sessionId = d.sessionId;
+        if (d.verified) verified = d.verified;
+        renderMode();
+        if (d.text) addBubble(d.text, false, '智能客服');
+        if (d.action === 'clarify' && d.options) showOptions(d.options);
+        else if (d.alternates && d.alternates.length) showOptions(d.alternates);
+        else showOptions(null);
+        showSelfhelp(d.selfhelp);
+        if (d.action === 'handoff_offer') { st.className = 'small warn'; st.textContent = '如需人工处理，请点击「转人工」。'; }
+        if (d.action === 'handoff') { handedOff = true; if (!supportTimer) supportTimer = setInterval(pollSession, 6000); }
+        if (d.action === 'verify_prompt' || d.verifyOffer) openVerify();
+      } finally {
+        askBusy = false;
+        var sb = $('#supSend'); if (sb) sb.disabled = false;
+      }
+    }
+    async function pollSession() {
+      if (!sessionId) return;
+      var r = await guestApi('/support/guest/session?sessionId=' + encodeURIComponent(sessionId));
+      if (!r.ok || !r.data) return;
+      (r.data.messages || []).forEach(function (m) {
+        if (m.id <= lastMsgId) return;
+        lastMsgId = m.id;
+        if (m.authorRole === 'agent') addBubble(m.body, false, m.displayName || '人工客服');
+      });
+    }
+    // 进入：取凭据 → 回看本机会话流（机器人/人工历史都在这里续上）
+    (async function () {
+      var boot = await guestSession(false);
+      if (mySeq !== supportSeq) return;
+      if (!boot.ok || !boot.data) {
+        if (mode) mode.innerHTML = '<span class="err">' + esc(boot.message || '客服暂时进不去，请稍后重试。') + '</span> <button class="ghost" type="button" id="gsRetry">重试</button>';
+        var rb = $('#gsRetry'); if (rb) rb.addEventListener('click', function () { render(); });
+        return;
+      }
+      if (boot.data.verified) verified = boot.data.verified;
+      sessionId = boot.data.sessionId || null;
+      renderMode();
+      var bootSid = sessionId;
+      var r = await guestApi('/support/guest/session' + (bootSid ? '?sessionId=' + encodeURIComponent(bootSid) : ''));
+      if (mySeq !== supportSeq) return;
+      if (interacted || sessionId !== bootSid) return; // 恢复在途时用户已开始提问，不再全量覆盖渲染
+      if (r.ok && r.data && r.data.sessionId) {
+        sessionId = r.data.sessionId;
+        if (r.data.verified) { verified = r.data.verified; renderMode(); }
+        handedOff = r.data.status === 'open';
+        (r.data.messages || []).forEach(function (m) {
+          if (m.id > lastMsgId) lastMsgId = m.id;
+          if (m.authorRole === 'user') addBubble(m.body, true);
+          else addBubble(m.body, false, m.displayName || (m.authorRole === 'agent' ? '人工客服' : '智能客服'));
+        });
+        if (handedOff) { st.className = 'small warn'; st.textContent = '本会话已转人工，人工客服的回复将显示在这里。'; if (!supportTimer) supportTimer = setInterval(pollSession, 6000); }
+        if (r.data.status === 'closed') { st.className = 'small'; st.textContent = '上一场会话已结束，您可以直接提问开始新会话。'; }
+      }
+    })();
+    $('#supSend').addEventListener('click', function () { var t = $('#supInput').value.trim(); if (t) { $('#supInput').value = ''; ask(t); } });
+    view.querySelectorAll('[data-q]').forEach(function (b) { b.addEventListener('click', function () { ask(b.getAttribute('data-q')); }); });
+    $('#verifyBtn').addEventListener('click', openVerify);
+    $('#humanBtn').addEventListener('click', async function () {
+      var body = {}; if (sessionId) body.sessionId = sessionId;
+      var r = await guestApi('/support/guest/handoff', { method: 'POST', body: body });
+      if (mySeq !== supportSeq) return;
+      if (!r.ok) { st.className = 'small err'; st.textContent = r.message || '转人工失败，请稍后重试。'; return; }
+      var d = r.data || {}; if (d.sessionId) sessionId = d.sessionId;
+      if (d.verified) { verified = d.verified; renderMode(); }
+      if (d.handoff) {
+        handedOff = true;
+        addBubble(d.notice || '已为您转接人工客服。', false, '智能客服');
+        if (d.supportConfigured === false) {
+          st.className = 'small warn';
+          st.textContent = '工单已建立，但人工客服账号尚未完成配置，处理可能延迟；紧急事项请发送邮件至 a718983610@gmail.com。';
+        } else { st.className = 'small ok'; st.textContent = '已转人工，人工客服的回复将显示在本会话中。'; }
+        if (!supportTimer) supportTimer = setInterval(pollSession, 6000);
+      } else {
+        // 门控未解锁（与封禁拦下同形，服务端不明示原因）：展示引导文案，继续问答攒门控
+        if (d.notice) addBubble(d.notice, false, '智能客服');
+        st.className = 'small warn';
+        st.textContent = '请继续在上方描述您的问题，条件满足后即可转接人工。';
+      }
     });
   }
 
