@@ -38,6 +38,10 @@ const I18N = {
     report_btn: "举报",
     report_ok: "举报已提交，感谢您的反馈。",
     report_already: "您已举报过该帖子，无需重复举报。",
+    report_title: "举报帖子",
+    report_reason_ph: "请填写举报原因，例如：垃圾广告、人身攻击、违规内容等",
+    report_need_reason: "请先填写举报原因。",
+    report_submit: "提交举报",
     mute_perm: "您的论坛发言已被永久限制。如有疑问，请发送邮件至 a718983610@gmail.com 申诉。",
     mute_timed: "您的论坛发言已被限制，解除时间：{x}。如有疑问，请发送邮件至 a718983610@gmail.com 申诉。",
     announce_admin_only: "公告板块仅管理员可发布帖子。",
@@ -77,6 +81,10 @@ const I18N = {
     report_btn: "Report",
     report_ok: "Your report has been submitted. Thank you for your feedback.",
     report_already: "You have already reported this post.",
+    report_title: "Report Post",
+    report_reason_ph: "Please describe the reason, e.g. spam, harassment, or rule violations",
+    report_need_reason: "Please enter a reason first.",
+    report_submit: "Submit Report",
     mute_perm: "Your forum posting privileges have been permanently restricted. If you wish to appeal, please email a718983610@gmail.com.",
     mute_timed: "Your forum posting privileges are restricted until {x}. If you wish to appeal, please email a718983610@gmail.com.",
     announce_admin_only: "Only administrators can post in the Announcements board.",
@@ -411,8 +419,10 @@ async function submitReply() {
         showAlert("replyAlert", t("reply_pending"), true);
       } else {
         document.getElementById("replyContent").value = "";
+        // W-16：先等详情刷新完再弹成功提示——openPost 开头会 hideAlert，
+        // 旧顺序下刚弹出的「回复发表成功」被立刻抹掉，用户看不到。
+        await openPost(currentPostId);
         showAlert("replyAlert", t("reply_ok"), true);
-        openPost(currentPostId);
       }
     } else if (r.status === 400 || r.status === 403 || r.status === 422) {
       showAlert("replyAlert", submitErrorText(r.data, "reply"), false);
@@ -428,13 +438,46 @@ async function submitReply() {
 }
 
 // ---------- 举报（B-29） ----------
+// W-16：举报改为先填原因再提交，与网页版口径一致（服务端契约本就支持 reason，
+// 网页版一直在用）；取消或不填原因不发请求。
+function promptReportReason() {
+  return new Promise(function (resolve) {
+    const mask = document.createElement("div");
+    mask.className = "modal-mask show";
+    mask.innerHTML =
+      '<div class="modal"><h3>' + esc(t("report_title")) + "</h3>" +
+      '<textarea id="reportReason" rows="4" style="width:100%;border:1px solid var(--line);border-radius:10px;padding:11px 13px;font-size:15px;font-family:inherit;box-sizing:border-box;" placeholder="' + esc(t("report_reason_ph")) + '"></textarea>' +
+      '<p class="alert" id="reportReasonErr" style="display:none;margin-top:10px;"></p>' +
+      '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;">' +
+      '<button type="button" class="small-btn" id="reportCancelBtn">' + esc(t("cancel")) + "</button>" +
+      '<button type="button" class="btn-blue" id="reportGoBtn">' + esc(t("report_submit")) + "</button></div></div>";
+    document.body.appendChild(mask);
+    const ta = mask.querySelector("#reportReason");
+    ta.focus();
+    function close(v) { mask.remove(); resolve(v); }
+    mask.querySelector("#reportCancelBtn").addEventListener("click", function () { close(null); });
+    mask.addEventListener("click", function (ev) { if (ev.target === mask) close(null); });
+    mask.querySelector("#reportGoBtn").addEventListener("click", function () {
+      const v = ta.value.trim();
+      if (!v) {
+        const e = mask.querySelector("#reportReasonErr");
+        e.style.display = ""; e.className = "alert err"; e.textContent = t("report_need_reason");
+        ta.focus();
+        return;
+      }
+      close(v);
+    });
+  });
+}
 async function reportCurrentPost() {
   if (!currentPostId) return;
   if (!getToken()) { openLogin(); return; }
+  const reason = await promptReportReason();
+  if (!reason) return;
   const btn = document.getElementById("reportBtn");
   if (btn) btn.disabled = true;
   try {
-    const r = await api("/forum/posts/" + encodeURIComponent(currentPostId) + "/report", { method: "POST", auth: true, body: {} });
+    const r = await api("/forum/posts/" + encodeURIComponent(currentPostId) + "/report", { method: "POST", auth: true, body: { reason: reason } });
     if (r.ok && r.data && r.data.alreadyReported) {
       showAlert("detailAlert", t("report_already"), true);
     } else if (r.ok) {

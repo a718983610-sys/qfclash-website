@@ -11,6 +11,13 @@ const I18N = {
     fb_sending: "正在提交，请稍候……",
     fb_success: "提交成功，感谢您的反馈，我们将认真阅读并处理。",
     fb_fail: "提交失败，请稍后重试，或直接发送邮件至 a718983610@gmail.com。",
+    meta_current: "当前版本",
+    meta_version: "版本",
+    meta_android_pkg: "Android 安装包",
+    meta_apk_pkg: "APK 安装包",
+    meta_windows_inst: "Windows 安装版",
+    meta_exe_inst: "安装版 EXE",
+    meta_portable: "便携版",
     fb_empty: "请先填写留言内容后再提交。",
     forum_banner_t: "官方论坛 · 用户社区",
     forum_banner_p: "欢迎来到 QFClash 官方论坛。这里是用户交流使用经验、反馈问题与提出建议的社区，官方公告亦在此发布。登录后即可发帖与回复，欢迎参与交流。",
@@ -44,7 +51,7 @@ const I18N = {
     dl_android_t: "Android 版", dl_android_p: "适用于 Android 手机与平板设备，下载 APK 安装包后直接安装。",
     dl_windows_t: "Windows 版", dl_windows_p: "适用于 Windows 电脑，提供安装版与便携版两种形式，可按需选择。",
     dl_btn_android: "下载最新版", dl_btn_windows: "下载最新版", dl_zip_alt: "或下载 ZIP 压缩包（免安装）",
-    dl_safe: "每个安装包均附有 SHA-256 校验值，下载后可对照校验，确保文件完整无误。",
+    dl_safe: "每个安装包的 SHA-256 校验值随版本公告在官方论坛公布，下载后可对照校验，确保文件完整无误。",
     dl_region: "本软件仅面向允许使用该类服务的国家或地区提供服务。您所在地区如不允许使用该类服务，请勿下载或使用。",
     points_title: "积分规则",
     points_sub: "登录用户在使用 QFClash 期间可累计积分，积分可用于兑换美元奖励。现行规则公示如下：",
@@ -74,6 +81,13 @@ const I18N = {
     fb_sending: "Submitting, please wait…",
     fb_success: "Submitted successfully. Thank you for your feedback; we will read and handle it with care.",
     fb_fail: "Submission failed. Please try again later, or email us directly at a718983610@gmail.com.",
+    meta_current: "Current version",
+    meta_version: "Version",
+    meta_android_pkg: "Android package",
+    meta_apk_pkg: "APK package",
+    meta_windows_inst: "Windows installer",
+    meta_exe_inst: "Installer EXE",
+    meta_portable: "Portable",
     fb_empty: "Please enter your message before submitting.",
     forum_banner_t: "Official Forum · Community",
     forum_banner_p: "Welcome to the QFClash official forum — the community for sharing experience, reporting issues, and making suggestions. Official announcements are also published here. Sign in to post and reply.",
@@ -107,7 +121,7 @@ const I18N = {
     dl_android_t: "Android", dl_android_p: "For Android phones and tablets. Download the APK package and install it directly.",
     dl_windows_t: "Windows", dl_windows_p: "For Windows PCs, available as both an installer and a portable package.",
     dl_btn_android: "Download Latest", dl_btn_windows: "Download Latest", dl_zip_alt: "Or download the ZIP package (portable)",
-    dl_safe: "Every package is published together with its SHA-256 checksum, which you may verify after downloading to confirm the file is complete and unmodified.",
+    dl_safe: "The SHA-256 checksum of every package is published with its release announcement on the official forum, so you can verify your download and confirm the file is complete and unmodified.",
     dl_region: "This software is offered only in countries and regions where the use of such services is permitted. If the use of such services is not permitted in your region, please do not download or use this software.",
     points_title: "Points Rules",
     points_sub: "Signed-in users earn points while using QFClash, and points can be redeemed for USD rewards. The current rules are published below:",
@@ -210,7 +224,8 @@ function applyLang(lang) {
           status.classList.add("ok");
           form.reset();
         } else {
-          status.textContent = (data && data.message) ? data.message : t("fb_fail");
+          // W-14：英文模式下不把服务端中文回包直接上屏，统一用本地词条。
+          status.textContent = lang() === "en" ? t("fb_fail") : ((data && data.message) ? data.message : t("fb_fail"));
           status.classList.add("err");
         }
       });
@@ -250,50 +265,7 @@ function applyLang(lang) {
   }
 })();
 
-// ===== 下载按钮直链：页面加载时向 GitHub API 解析各平台最新正式版安装包，点按直接下载 =====
-// 只取正式版（跳过 draft 与 prerelease 预发布）；解析成功后把按钮 href 换成资产直链
-// （browser_download_url）并去掉新窗口打开，让下载在当前页直接开始；
-// 拉取失败则保留 HTML 中的当前正式版直链作为兜底，按钮始终直达下载。
-(function () {
-  var btns = document.querySelectorAll("[data-dl]");
-  if (!btns.length) return;
-  // 解析超时（W-02）：15 秒拉不到就放弃，保留 HTML 中的正式版直链兜底。
-  function fetchT(url, opts) {
-    var ctrl = ("AbortController" in window) ? new AbortController() : null;
-    var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 15000) : null;
-    var o = {};
-    Object.keys(opts || {}).forEach(function (k) { o[k] = opts[k]; });
-    if (ctrl) o.signal = ctrl.signal;
-    return fetch(url, o).then(function (r) { if (timer) clearTimeout(timer); return r; }, function (e) { if (timer) clearTimeout(timer); throw e; });
-  }
-  fetchT("https://api.github.com/repos/a718983610-sys/FlClash/releases?per_page=30", {
-    headers: { "Accept": "application/vnd.github+json" }
-  }).then(function (res) {
-    if (!res.ok) throw new Error("github api " + res.status);
-    return res.json();
-  }).then(function (list) {
-    function pick(prefix, exts) {
-      for (var i = 0; i < list.length; i++) {
-        var r = list[i];
-        if (r.draft || r.prerelease) continue;
-        if (!r.tag_name || r.tag_name.indexOf(prefix) !== 0) continue;
-        for (var e = 0; e < exts.length; e++) {
-          for (var a = 0; a < (r.assets || []).length; a++) {
-            var name = (r.assets[a].name || "").toLowerCase();
-            if (name.slice(-exts[e].length) === exts[e]) return r.assets[a].browser_download_url;
-          }
-        }
-      }
-      return null;
-    }
-    var map = {
-      android: pick("android-v", [".apk"]),
-      windows: pick("windows-v", [".exe", ".zip"]),
-      "windows-zip": pick("windows-v", [".zip"])
-    };
-    btns.forEach(function (b) {
-      var url = map[b.getAttribute("data-dl")];
-      if (url) { b.href = url; b.removeAttribute("target"); }
-    });
-  }).catch(function () { /* 保留兜底链接 */ });
-})();
+// 下载按钮：index.html 内写死的当前正式版文件直链，发版时随版本号一并更新。
+// （W-15：旧的「运行时向 GitHub API 按 android-v/windows-v 前缀 tag 解析」逻辑已删除——
+//  发版早已改用统一 tag，该解析永远命中不了，属死代码，且将来一旦出现同前缀
+//  tag 反而有把按钮换错资产的风险。下载区只许当前正式版直下文件、零仓库链接。）

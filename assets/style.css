@@ -142,7 +142,7 @@ footer .lic{margin-top:16px;line-height:1.9}
   .sticky-primary{background:var(--blue);color:#fff;box-shadow:0 6px 16px rgba(0,122,255,.25)}
   .sticky-primary:hover{background:var(--blue-dark)}
   .sticky-ghost{background:#fff;color:var(--ink);border:1px solid var(--line);flex:0 0 auto;padding-left:14px;padding-right:14px}
-  body{padding-bottom:68px}
+  body{padding-bottom:78px}
   .brand{font-size:17px}
   .brand img{width:30px;height:30px}
   .nav .nav-auth{margin-left:auto;gap:6px}

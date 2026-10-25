@@ -287,7 +287,11 @@
     drawer.classList.toggle('open', open);
     burger.setAttribute('aria-expanded', open ? 'true' : 'false');
     drawer.setAttribute('aria-hidden', open ? 'false' : 'true');
+    // W-12：关闭态用 inert 把抽屉内链接/按钮移出键盘 Tab 序（与 aria-hidden 一致），
+    // CSS 侧另有 visibility 兜底（不支持 inert 的浏览器）。
+    if ('inert' in drawer) drawer.inert = !open;
   }
+  if ('inert' in drawer) drawer.inert = true;
   function drawerOpen() { return drawer.classList.contains('open'); }
   burger.addEventListener('click', function () { setDrawer(!drawerOpen()); });
   document.addEventListener('pointerdown', function (ev) {
@@ -400,6 +404,7 @@
     var r = route(); markNav(r.name === 'chat' ? 'friends' : r.name);
     document.body.classList.toggle('in-chat', r.name === 'chat');
     if (r.name !== 'chat' && typeof chatTimer !== 'undefined' && chatTimer) { clearInterval(chatTimer); chatTimer = null; }
+    if (r.name !== 'support') { supportSeq++; if (supportTimer) { clearInterval(supportTimer); supportTimer = null; } }
     probeOwner();
     window.scrollTo(0, 0);
     if (maintenanceOn) {
@@ -587,6 +592,9 @@
     location.hash = '#/home'; render();
   }
   // 谷歌登录：GIS 官方库渲染按钮，凭据回调 POST /auth/google 换令牌（与官网 auth.js 同一流程/client_id）
+  // W-22：index.html 已静态引入 GSI；动态注入只许发生一次，反复进出登录页
+  // 不再叠加 script 标签，后到者排队等同一次加载结果。
+  var gisState = 0, gisWaiters = [];
   function initGoogleButton() {
     function ready() {
       try {
@@ -601,8 +609,20 @@
       host.innerHTML = '<p class="err small">谷歌登录组件加载失败，请检查网络后刷新重试，或先使用密码登录。</p>';
     }
     if (window.google && google.accounts && google.accounts.id) return ready();
+    if (gisState === 2) return ready(); // 已注入并加载过：直接走 ready（内部自检 google 是否就绪），不再重复注入
+    gisWaiters.push({ ready: ready, fallback: googleFallback });
+    if (gisState === 1) return; // 已有注入在途，排队等待，不重复注入
+    gisState = 1;
     var s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client'; s.async = true; s.defer = true;
-    s.onload = ready; s.onerror = googleFallback; document.head.appendChild(s);
+    s.onload = function () {
+      gisState = 2;
+      var w = gisWaiters.splice(0); if (w.length) w[w.length - 1].ready();
+    };
+    s.onerror = function () {
+      gisState = 0;
+      var w = gisWaiters.splice(0); if (w.length) w[w.length - 1].fallback();
+    };
+    document.head.appendChild(s);
   }
   function onGoogleCredential(resp) {
     var err = $('#loginErr');
@@ -660,7 +680,9 @@
   // 注册（复用官网五栏口径：账户ID/邮箱/密码/确认密码/邮箱验证码，三步接口 request-code→verify→complete）
   function pageRegister() {
     if (loggedIn()) { location.hash = '#/home'; return; }
-    var ticket = '';
+    // W-09：票据与签发它的邮箱＋验证码绑定；任一变化即作废重走 verify，
+    // 不再拿旧票据顶着新邮箱/新验证码提交。
+    var ticket = '', ticketEmail = '', ticketCode = '';
     view.innerHTML = '<div class="card"><h2>注册</h2><p class="muted">在本网站注册的账号与 QFClash 客户端通用，注册后可直接在客户端登录。</p>' +
       '<form class="stack" id="regForm">' +
       '<label>账户 ID<input name="username" autocomplete="username" required><span class="small muted">8 位以上、仅含字母与数字，设置后不可修改。</span></label>' +
@@ -677,7 +699,7 @@
       var err = $('#regErr'), ok = $('#regOk'); err.textContent = ''; ok.textContent = '';
       if (!email) { err.textContent = '请先填写邮箱。'; return; }
       var r = await api('/auth/register/request-code', { method: 'POST', auth: false, body: { email: email } });
-      if (r.ok) { ok.textContent = '验证码已发送到您的邮箱，请查收后填写。'; armCodeCooldown(btn, 60); }
+      if (r.ok) { ticket = ''; ok.textContent = '验证码已发送到您的邮箱，请查收后填写。'; armCodeCooldown(btn, 60); }
       else { err.textContent = r.message || '验证码发送失败，请稍后重试。'; if (r.status === 429) armCodeCooldown(btn, 60); }
     });
     $('#regForm').addEventListener('submit', async function (ev) {
@@ -688,14 +710,17 @@
         var err = $('#regErr'), ok = $('#regOk'); err.textContent = ''; ok.textContent = '';
         if (String(fd.get('password')) !== String(fd.get('password2'))) { err.textContent = '两次输入的密码不一致，请重新输入。'; return; }
         var email = String(fd.get('email')).trim(), code = String(fd.get('code')).trim();
+        if (ticket && (ticketEmail !== email || ticketCode !== code)) ticket = '';
         if (!ticket) {
           var vr = await api('/auth/register/verify', { method: 'POST', auth: false, body: { email: email, code: code } });
           if (!vr.ok || !vr.data || !vr.data.ticket) { err.textContent = vr.message || '验证码不正确或已过期，请重新获取。'; return; }
-          ticket = vr.data.ticket;
+          ticket = vr.data.ticket; ticketEmail = email; ticketCode = code;
         }
         var body = Object.assign({ ticket: ticket, username: String(fd.get('username')).trim(), password: String(fd.get('password')) }, authDeviceBody());
         var r = await api('/auth/register/complete', { method: 'POST', auth: false, body: body });
         if (r.ok && r.data && r.data.accessToken) { finishLogin(r.data, true); return; }
+        // 票据已失效/过期时清掉本地票据，下次提交自动重新验证，不必刷新页面。
+        if (r.message && r.message.indexOf('验证已经过期') >= 0) ticket = '';
         err.textContent = r.message || '注册失败，请稍后重试。';
       } finally { unlock(); }
     });
@@ -874,6 +899,17 @@
           if (body.payoutMethod === 'usdt') body.payoutAddress = String(fd.get('payoutAddress') || '').trim();
           else body.payoutEmail = String(fd.get('payoutEmail') || '').trim();
         }
+        // W-19：发放信息前端校验——缺失或格式不对时定位报错、不下单，
+        // 不再把无地址订单送进人工审核再驳回退分来回折腾。
+        var rErr = $('#redeemErr');
+        if (body.payoutMethod === 'usdt') {
+          if (!body.payoutAddress) { rErr.textContent = '请填写 USDT（TRC20）收款地址后再确认兑换。'; return; }
+          if (!/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(body.payoutAddress)) { rErr.textContent = 'USDT（TRC20）收款地址格式不正确（应为 T 开头的 34 位地址），请核对后重试。'; return; }
+        }
+        if (body.payoutMethod === 'giftcard') {
+          if (!body.payoutEmail) { rErr.textContent = '请填写接收礼品卡的邮箱后再确认兑换。'; return; }
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.payoutEmail)) { rErr.textContent = '接收礼品卡的邮箱格式不正确，请核对后重试。'; return; }
+        }
         var r = await api('/redeem/orders', { method: 'POST', body: body });
         if (r.ok) { box.innerHTML = '<p class="ok" style="margin-top:12px;">兑换已提交' + (p.requiresReview ? '，等待人工审核' : '') + '。您可在「我的兑换」中查看进度。</p>'; loadMyOrders(); }
         else $('#redeemErr').textContent = r.message || '兑换失败，请稍后重试。';
@@ -918,9 +954,12 @@
       '<div class="err" id="revealErr"></div><div id="revealOut"></div>' +
       '<button class="primary" type="submit">验证并查看兑换码</button></form></div>';
     $('#revealSend').addEventListener('click', async function () {
+      var btn = this;
       var r = await api('/redeem/orders/' + encodeURIComponent(orderId) + '/code/request', { method: 'POST', body: {} });
       $('#revealSendSt').textContent = r.ok ? '验证码已发送到账号绑定邮箱。' : (r.message || '发送失败。');
       $('#revealSendSt').className = 'small ' + (r.ok ? 'ok' : 'err');
+      // W-20：与全站发码点统一冷却，防连点刷验证码。
+      if (r.ok || r.status === 429) armCodeCooldown(btn, 60);
     });
     $('#revealForm').addEventListener('submit', async function (ev) {
       ev.preventDefault();
@@ -1698,9 +1737,17 @@
     var shareBtn = $('#shareBtn');
     if (shareBtn) shareBtn.addEventListener('click', async function () {
       var url = location.origin + location.pathname + '#/forum/post/' + encodeURIComponent(id);
-      try { await navigator.clipboard.writeText(url); } catch (e) { /* 剪贴板不可用时仍计数 */ }
+      // W-08：剪贴板失败不再假报「已复制」，改为把链接原文显示出来供手动复制。
+      var copied = false;
+      try { await navigator.clipboard.writeText(url); copied = true; } catch (e) { /* 剪贴板不可用：走手动复制提示 */ }
       var rr = await api('/forum/posts/' + encodeURIComponent(id) + '/share', { method: 'POST', body: {} });
+      if (!copied) {
+        st.textContent = '自动复制失败，请手动复制此链接：' + url;
+        st.className = 'small err';
+        return;
+      }
       st.textContent = rr.ok ? '链接已复制，分享计数已更新。' : '链接已复制。';
+      st.className = 'small ok';
       if (rr.ok) forumPostPage(id);
     });
     var reportBtn = $('#reportBtn');
@@ -1836,6 +1883,10 @@
   var QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '🎉'];
   var EMOJI_PANEL = ['😀', '😁', '😂', '🤣', '😄', '😅', '😆', '😉', '😊', '😋', '😎', '😍', '😘', '🥰', '🙂', '🤗', '🤩', '😴', '😷', '🥳', '👍', '👎', '🙏', '🔥', '🎉', '❤️', '💯', '✅', '⭐', '🚀', '☕', '🍜', '🎂', '🐱', '🐶', '🌸', '🌙', '⚡', '🎵'];
   var chatTimer = null;
+  // 客服轮询（W-10）：定时器提升为模块级，render() 切页时统一清理，不再随
+  // pageSupport 闭包泄漏；supportSeq 为页面代次，离开客服页即自增，使迟到的
+  // 会话恢复回包失效（W-Q1）。
+  var supportTimer = null, supportSeq = 0;
   function parsePayload(text) {
     if (!text || text.indexOf('qf1:') !== 0) return { kind: 'text', text: text };
     try {
@@ -1957,9 +2008,11 @@
         if (!r.ok) throw new Error(r.message || '发送失败。');
         status.textContent = '';
         pullHistory();
+        return true;
       } catch (e) {
         status.className = 'small err';
         status.textContent = e && e.code === 'CRYPTO_NOT_READY' ? '聊天尚未解锁，消息未发送。' : ('发送失败：' + uiErrText(e, '请稍后重试。'));
+        return false;
       }
     }
     // 保险库解锁（登录密码）→ 身份恢复 → 历史拉取
@@ -1994,6 +2047,7 @@
     $('#attachBtn').addEventListener('click', function () { $('#attachFile').click(); });
     $('#attachFile').addEventListener('change', async function () {
       var f = $('#attachFile').files[0]; if (!f) return;
+      this.value = ''; // W-11：复位选择框，否则同一文件第二次选择不再触发 change
       if (!QFCrypto.isUnlocked || !QFCrypto.isUnlocked()) { status.className = 'small err'; status.textContent = '请先解锁聊天后再发送附件。'; return; }
       status.className = 'small muted'; status.textContent = '正在加密并上传附件…';
       try {
@@ -2007,8 +2061,9 @@
     $('#chatSend').addEventListener('click', async function () {
       var ta = $('#chatInput'); var text = ta.value.trim(); if (!text) return;
       if (!QFCrypto.isUnlocked || !QFCrypto.isUnlocked()) { status.className = 'small err'; status.textContent = '请先解锁聊天后再发送消息。'; return; }
-      ta.value = '';
-      await sendWire(text);
+      // W-11：发送成功后才清空输入框，失败时原文保留可改可重发，不再丢稿。
+      var sentOk = await sendWire(text);
+      if (sentOk && ta.value.trim() === text) ta.value = '';
     });
   }
 
@@ -2316,7 +2371,9 @@
       '<div id="supOptions"></div>' +
       '<div class="composer"><textarea id="supInput" placeholder="请输入您的问题" rows="2"></textarea><button class="primary" id="supSend" type="button">发送</button></div>' +
       '<p class="row" style="margin-top:8px;"><button class="ghost" id="humanBtn" type="button">转人工</button><span class="small" id="supStatus" role="status"></span></p></div>';
-    var sessionId = null, pollTimer = null, lastMsgId = 0, handedOff = false, askBusy = false;
+    var sessionId = null, lastMsgId = 0, handedOff = false, askBusy = false;
+    var mySeq = ++supportSeq;
+    if (supportTimer) { clearInterval(supportTimer); supportTimer = null; }
     var log = $('#supLog'), st = $('#supStatus');
     function addBubble(text, mine, name) {
       var b = el('<div class="bubble' + (mine ? ' mine' : '') + '"></div>');
@@ -2372,11 +2429,13 @@
     // 进入时恢复既有会话消息流
     (async function () {
       var r = await api('/support/session');
+      if (mySeq !== supportSeq) return; // 已离开客服页，迟到的恢复回包直接丢弃
+      if (sessionId) return; // W-Q1：用户已先行发问并建立新会话，不再被旧会话覆盖
       if (r.ok && r.data && r.data.sessionId) {
         sessionId = r.data.sessionId;
         handedOff = r.data.status === 'open';
         (r.data.messages || []).forEach(function (m) { if (m.id > lastMsgId) lastMsgId = m.id; });
-        if (handedOff) { st.className = 'small warn'; st.textContent = '本会话已转人工，人工客服的回复将显示在这里。'; pollTimer = setInterval(pollSession, 6000); }
+        if (handedOff) { st.className = 'small warn'; st.textContent = '本会话已转人工，人工客服的回复将显示在这里。'; if (!supportTimer) supportTimer = setInterval(pollSession, 6000); }
       }
     })();
     $('#supSend').addEventListener('click', function () { var t = $('#supInput').value.trim(); if (t) { $('#supInput').value = ''; ask(t); } });
@@ -2392,7 +2451,7 @@
         st.className = 'small warn';
         st.textContent = '工单已建立，但人工客服账号尚未完成配置，处理可能延迟；紧急事项请发送邮件至 a718983610@gmail.com。';
       } else { st.className = 'small ok'; st.textContent = '已转人工，人工客服的回复将显示在本会话中。'; }
-      if (!pollTimer) pollTimer = setInterval(pollSession, 6000);
+      if (!supportTimer) supportTimer = setInterval(pollSession, 6000);
     });
   }
 
@@ -2500,7 +2559,10 @@
       var scale = Math.min(1, 512 / Math.max(img.width, img.height));
       var canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.round(img.width * scale)); canvas.height = Math.max(1, Math.round(img.height * scale));
-      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      // W-21：与营地头像口径统一——先填白底再绘图，透明 PNG 转 JPEG 不再变黑底。
+      var actx = canvas.getContext('2d');
+      actx.fillStyle = '#ffffff'; actx.fillRect(0, 0, canvas.width, canvas.height);
+      actx.drawImage(img, 0, 0, canvas.width, canvas.height);
       var q = 0.85, blob = null;
       while (q >= 0.4) {
         blob = await new Promise(function (res) { canvas.toBlob(res, 'image/jpeg', q); });
@@ -2870,7 +2932,12 @@
       var f1 = await ownerConfirm({
         title: '替用户设置新密码', danger: true,
         body: '您将为该用户设置一个新密码。执行后：该用户在所有设备上的登录状态将被退出；如其密码处于冻结状态将一并解除；系统会发邮件通知该用户。',
-        fieldsHtml: '<label for="fNewPw">新密码（8 至 72 位）</label><input id="fNewPw" type="text" autocomplete="off">',
+        // W-18：密码框改 password 类型默认不可见，另加「显示」开关供站长核对。
+        fieldsHtml: '<label for="fNewPw">新密码（8 至 72 位）</label><input id="fNewPw" type="password" autocomplete="new-password"><label class="small" style="display:block;margin-top:6px;"><input type="checkbox" id="fNewPwShow"> 显示密码</label>',
+        onShow: function (ov) {
+          var pw = ov.querySelector('#fNewPw'), sw = ov.querySelector('#fNewPwShow');
+          if (pw && sw) sw.addEventListener('change', function () { pw.type = sw.checked ? 'text' : 'password'; });
+        },
         collect: function (ov) { var v = ov.querySelector('#fNewPw').value; if (v.length < 8 || v.length > 72) { ownFieldErr(ov, '新密码长度须为 8 至 72 位。'); return null; } return { newPassword: v }; },
       });
       if (!f1) return;

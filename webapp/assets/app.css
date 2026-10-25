@@ -45,8 +45,8 @@ svg.ico { flex: 0 0 auto; vertical-align: -3px; }
 .site-home-btn { margin-left: auto; flex: 0 0 auto; border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 999px; padding: 6px 14px; font-size: 13.5px; text-decoration: none; white-space: nowrap; transition: border-color .15s, color .15s, box-shadow .15s; }
 .site-home-btn:hover { border-color: var(--brand); color: var(--brand); text-decoration: none; box-shadow: 0 3px 10px rgba(37, 99, 235, .12); }
 
-.drawer { position: fixed; top: var(--topbar-h); left: 0; bottom: 0; width: var(--drawer-w); max-width: 84vw; background: var(--card); border-right: 1px solid var(--line-soft); z-index: 50; transform: translateX(-105%); transition: transform .24s cubic-bezier(.32, .72, .28, 1); display: flex; flex-direction: column; box-shadow: 10px 0 30px rgba(20, 30, 60, .09); }
-.drawer.open { transform: translateX(0); }
+.drawer { position: fixed; top: var(--topbar-h); left: 0; bottom: 0; width: var(--drawer-w); max-width: 84vw; background: var(--card); border-right: 1px solid var(--line-soft); z-index: 50; transform: translateX(-105%); visibility: hidden; transition: transform .24s cubic-bezier(.32, .72, .28, 1), visibility 0s linear .24s; display: flex; flex-direction: column; box-shadow: 10px 0 30px rgba(20, 30, 60, .09); }
+.drawer.open { transform: translateX(0); visibility: visible; transition: transform .24s cubic-bezier(.32, .72, .28, 1); }
 .drawer-identity { flex: 0 0 auto; padding: 18px 16px; border-bottom: 1px solid var(--line-soft); display: flex; align-items: center; gap: 12px; cursor: pointer; background: linear-gradient(180deg, #f4f8ff, #ffffff); }
 .drawer-identity:hover { background: linear-gradient(180deg, #eaf1fe, #f7faff); }
 .drawer-identity .avatar { width: 46px; height: 46px; border-radius: 50%; object-fit: cover; background: #e8edf5; flex: 0 0 auto; }

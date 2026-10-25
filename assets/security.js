@@ -330,7 +330,7 @@
       if (!r.ok) { var ai0 = document.getElementById("acctInfo"); if (ai0) ai0.textContent = t("generic_fail"); return; }
       var d = r.data;
       document.getElementById("acctInfo").textContent =
-        (d.email || "") + (d.id ? " · ID " + d.id : "") + (d.points ? " · " + d.points.balance : "");
+        (d.email || "") + (d.id ? " · ID " + d.id : "") + (d.points ? " · 积分 " + d.points.balance + " 分" : "");
       if (d.status === "deleting" && d.deletionEffectiveAt) {
         var info = document.getElementById("deletingInfo");
         info.textContent = t("deleting_now", { x: fmtTime(d.deletionEffectiveAt) });
