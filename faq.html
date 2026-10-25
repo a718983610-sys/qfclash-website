@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>QFClash 常见问题</title>
+<meta name="description" content="QFClash 常见问题解答：账号与登录、连接与节点、订阅、积分与兑换、更新、封禁与申诉、论坛与聊天。">
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/style.css?v=20261025d">
+<style>
+  .faq-cat{font-size:19px;margin:30px 0 6px;text-align:left}
+  details.faq{border:1px solid var(--line);border-radius:12px;margin:10px 0;background:var(--card,#fff)}
+  details.faq summary{cursor:pointer;padding:15px 18px;font-size:16px;font-weight:600;line-height:1.5;list-style:none;-webkit-tap-highlight-color:transparent}
+  details.faq summary::-webkit-details-marker{display:none}
+  details.faq summary::after{content:"＋";float:right;color:var(--gray);font-weight:400}
+  details.faq[open ] summary::after{content:"－"}
+  details.faq .ans{padding:0 18px 16px;line-height:1.8;font-size:15px}
+  details.faq .ans p{margin:6px 0}
+  details.faq .ans ol,details.faq .ans ul{margin:6px 0;padding-left:22px}
+  details.faq .ans li{margin:4px 0}
+  .crosslinks{margin-top:26px;font-size:15px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="index.html"><img src="assets/icon.png" alt="QFClash">QFClash</a>
+    <nav>
+      <a href="index.html#about">产品介绍</a>
+      <a href="index.html#download">下载</a>
+      <a href="index.html#points">积分规则</a>
+      <a href="changelog.html">更新日志</a>
+      <a href="faq.html">常见问题</a>
+    </nav>
+    <div class="nav-auth" id="navAuth"></div>
+    <div class="nav-side">
+      <a class="nav-forum" href="forum.html">论坛</a>
+      <a class="nav-forum" href="./webapp/">网页版</a>
+    </div>
+  </div>
+</header>
+
+<div class="doc">
+  <a class="back" href="index.html">← 返回首页</a>
+  <h1>常见问题</h1>
+  <p class="meta">点开问题查看解答。这里没有您的问题时，可在软件内使用智能客服，或到论坛发帖求助。</p>
+
+  <h2 class="faq-cat">账号与登录</h2>
+
+  <details class="faq">
+    <summary>不开梯子（不挂代理）能登录吗？</summary>
+    <div class="ans">
+      <p>可以。账号密码登录不需要开梯子：登录、注册、验证等账号请求由软件直连账号服务器发出，不经过代理节点，节点故障也不影响登录。</p>
+      <p>谷歌一键登录需要您的网络能访问谷歌服务；如果连不上谷歌，请改用账户 ID 加密码或邮箱加密码登录，登录的是同一个账号。</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary>怎么注册账号？</summary>
+    <div class="ans">
+      <ol>
+        <li>打开 QFClash，在首屏点击醒目的登录入口，进入登录／注册页面。</li>
+        <li>切换至注册页，依次填写五栏：账户 ID → 邮箱 → 密码 → 重复密码 → 验证码。账户 ID 一经设置不可更改，请谨慎填写。</li>
+        <li>点击获取邮箱验证码，把收到的验证码填入验证码栏；收不到时先检查垃圾邮件文件夹。</li>
+        <li>核对两次密码一致后提交，注册即完成。</li>
+      </ol>
+      <p>注册完成后，可用账户 ID 加密码或邮箱加密码，在安卓版、Windows 版与官方网站任一端登录，同一账号各端通用。同一设备 24 小时内最多成功注册 1 个账号。</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary>忘记密码了怎么办？</summary>
+    <div class="ans">
+      <ol>
+        <li>在登录页点击「忘记密码」，进入重置流程。</li>
+        <li>填写绑定邮箱，系统会向绑定邮箱发送验证码。</li>
+        <li>输入验证码并设置新密码，提交成功后新密码即时生效。</li>
+      </ol>
+      <p>重置成功后，该账户在其他设备上的登录会失效，需用新密码重新登录。如绑定邮箱已无法使用、收不到验证码，请改走找回申诉通道。</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary>登录不上怎么办？</summary>
+    <div class="ans">
+      <p>先看清登录页给出的提示，按提示处理，不要反复盲目重试（密码连续输错 5 次会触发冻结）：</p>
+      <ul>
+        <li>提示密码错误：核对账户 ID 或邮箱是否输对、密码大小写与输入法状态；确认忘记密码的，走「忘记密码」用邮箱重置。</li>
+        <li>提示账户已被冻结：这是输错密码触发的冻结，用「忘记密码」重置密码即可解冻。</li>
+        <li>提示账户已被封禁：属于封禁，请在封禁页提交封禁申诉；重置密码不能解封。</li>
+        <li>密码通过后要求邮箱验证码：这是新设备或登录环境变化触发的双重验证，在绑定邮箱查收 6 位验证码并填入（10 分钟有效）。</li>
+        <li>谷歌登录失败：先确认网络能访问谷歌；不能时改用邮箱加密码或账户 ID 加密码登录同一账号。</li>
+      </ul>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary>谷歌一键登录怎么用？</summary>
+    <div class="ans">
+      <ol>
+        <li>在登录页点击谷歌一键登录按钮，按系统提示选择谷歌账号并完成授权。</li>
+        <li>如该邮箱已有完整账号，将直接登录成功；如首次使用该谷歌账号，需先补设账户 ID 与登录密码才算完成注册（谷歌登录只省去邮箱验证码一步）。</li>
+      </ol>
+      <p>同一邮箱通过谷歌登录与通过邮箱注册的，视为同一账号。谷歌登录的可用性取决于谷歌服务本身；谷歌不可达时，请改用账户 ID 加密码或邮箱加密码登录。</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary>「记住此设备」是什么意思？</summary>
+    <div class="ans">
+      <p>登录页设有勾选项「记住此设备」：勾选后，该设备保持登录状态，下次打开软件免输密码直接进入；不勾选，则每次重新打开软件都需要重新登录，退出即失效。长期未使用达到 90 天后，需重新验证一次（轻验证即可）。</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary>可以用通行密钥（指纹／面容）登录吗？</summary>
+    <div class="ans">
+      <p>可以。先在安全中心添加通行密钥，之后在登录页选择通行密钥登录入口，按系统提示使用生物识别或设备 PIN 完成验证即可登录，无需输入密码，也不再另发邮箱验证码。</p>
+    </div>
+  </details>
+
+  <h2 class="faq-cat">连接与节点</h2>
+
+  <details class="faq">
+    <summary>显示已连接，却上不了网怎么办？</summary>
+    <div class="ans">
+      <ol>
+        <li>先检查当前选中的是不是「直连」：选了直连等于没有走节点，需要上外网的网站会打不开。请到节点列表改选一个节点再试。</li>
+        <li>确认订阅状态：进入「配置」，确认已导入订阅且订阅未到期。</li>
+        <li>手动换一个节点重试，排除单个节点故障。</li>
+        <li>在「配置」页更新订阅，拉取最新节点列表后再试。</li>
+        <li>切换规则／全局模式各试一次，排除规则分流的影响。</li>
+      </ol>
+      <p>以上均无效时，问题多在订阅侧（节点维护、流量耗尽、提供方故障），请联系订阅提供方；本软件不提供节点，无法代为修复节点。</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary>规则模式和全局模式有什么区别？</summary>
+    <div class="ans">
+      <p>规则模式：软件按订阅自带的规则分流——有的网站走节点、有的网站直连，所以个别网站在规则模式下本来就不走代理。全局模式：所有连接都走当前选定的节点。如果某个网站在规则模式下打不开、换到全局模式能开，多半是规则分流的结果，可按需要切换模式使用。</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary>怎么导入订阅、怎么选节点？</summary>
+    <div class="ans">
+      <p>导入入口有两处，流程一致：「配置」页的导入订阅流程，或仪表盘（主界面）右上角的「＋」。按页面提示粘贴订阅链接即可完成导入。</p>
+      <p>节点选择默认为手动选择：导入后在节点列表中自行点选，软件不会擅自切换。「自动选最快节点」是「设置」中的开关，默认关闭；开启后，软件会在连接开始或重连时自动测速并选择最快节点。</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary>软件提供节点或订阅吗？</summary>
+    <div class="ans">
+      <p>不提供。本软件不提供任何代理节点或订阅内容；您在任何渠道获取的订阅由您自行导入与管理，节点可用性、速度与订阅到期状态由订阅提供方决定。</p>
+    </div>
+  </details>
+
+  <h2 class="faq-cat">订阅</h2>
+
+  <details class="faq">
+    <summary>订阅怎么备份和恢复？换手机怎么办？</summary>
+    <div class="ans">
+      <p>入口在「配置」页，有「备份订阅」与「恢复订阅」两个选项，仅登录用户可用。</p>
+      <ul>
+        <li>备份：点击「备份订阅」，订阅配置会先在本机加密，再上传至服务器保险库；服务器只能看到密文，无法解密。每个账户保留一份，新备份覆盖旧备份。</li>
+        <li>恢复：点击「恢复订阅」，输入账户密码后，本机下载密文并在本地解密恢复。如从未备份过，会提示「尚未备份。」</li>
+        <li>请注意：保险库以账户密码加密，忘记密码且无法重置时，备份将不可恢复，服务器与维护者均无法代为解密。</li>
+      </ul>
+    </div>
+  </details>
+
+  <h2 class="faq-cat">积分与兑换</h2>
+
+  <details class="faq">
+    <summary>不登录能用吗？访客有什么限制？</summary>
+    <div class="ans">
+      <p>可以不登录使用。未登录时在登录页点击「暂不登录」进入访客模式：订阅导入、连接、规则与全局模式、节点切换五项核心功能可用；论坛仅可只读浏览；加密聊天、好友、积分与备份类功能访客不可用。</p>
+      <p>访客每台设备每天限使用 2 小时（由服务器按设备登记，卸载重装、清除数据、改系统时间都不会重置当日额度）。额度用完将断开连接并弹出登录提示；登录后不限时长、功能完整开放，还可累计积分。</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary>积分怎么算？</summary>
+    <div class="ans">
+      <ul>
+        <li>积分仅登录用户可累计：连着用才计时——真正连接且有真实使用的时段才累计，断开、暂停、纯挂机不计。</li>
+        <li>每积满 3 小时有效使用结算 1 分；不足 3 小时的分钟数不清零，保留到下一时段继续累计。</li>
+        <li>每账号每日最多 8 分；同一台设备上各账号合计也有每日上限。双平台同账号共账，同一时段双开不重复计算。</li>
+        <li>在论坛每天成功发布 1 条帖子或 1 条评论，还可得 1 积分（当天限得 1 次）。</li>
+        <li>查看进度：进入「我的」，在账号与积分概览处可查看当前积分、今日已累计与待结算分钟；积分流水可逐笔查询。</li>
+      </ul>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary>积分不涨是什么原因？</summary>
+    <div class="ans">
+      <p>请按顺序排查：</p>
+      <ol>
+        <li>是否已登录：访客模式不累计积分。</li>
+        <li>是否有效使用：连续 30 分钟零流量的挂机时段作废，不涨分属正常。</li>
+        <li>是否已达上限：账号当日满 8 分或本设备当日合计满上限时，当日不再增长，次日重置。</li>
+        <li>待结算分钟未凑满：不足 3 小时的有效分钟记为待结算，凑满后才结算 1 分，不会清零。</li>
+        <li>模拟器环境：连接可正常使用，但积分不计入，页面会提示「当前环境不支持积分累计」。</li>
+        <li>账户冻结期间暂停累计，封禁期间不累计。</li>
+      </ol>
+      <p>以上均无异常仍不涨分的，请通过意见反馈附账号信息说明情况。</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary>积分怎么兑换？多久能到账？</summary>
+    <div class="ans">
+      <p>入口在「我的 → 我的兑换」。当前可兑换商品以商品区实际展示为准：1000 分兑换 5 美元奖励（仅 USDT 发放）；1600 分兑换 10 美元奖励（可自选 USDT 或礼品卡发放）。</p>
+      <ol>
+        <li>选择商品，填写发放信息（USDT 填 TRC20 收款地址；礼品卡填接收邮箱）。</li>
+        <li>二次确认后生成订单，积分即扣减，订单进入待审核。</li>
+        <li>全部订单均须人工审核后发放，不自动到账；在「我的 → 我的兑换」可查询订单状态。审核不通过会驳回并将积分原路退回（作弊类驳回除外），驳回原因随订单状态展示。</li>
+      </ol>
+      <p>兑换已取消地区限制，全球开放；积分不足时下单会提示还差多少分，不生成订单、不扣分。</p>
+    </div>
+  </details>
+
+  <h2 class="faq-cat">更新</h2>
+
+  <details class="faq">
+    <summary>怎么更新到新版本？更新后要重新登录吗？</summary>
+    <div class="ans">
+      <p>软件支持应用内更新：有新版本时会有弹窗或系统通知提示，点击更新后在软件内下载（带进度条，并展示本次更新说明），无需去外部下载。也可以在「关于」页手动检查更新。</p>
+      <p>更新后不需要重新登录：更新是覆盖安装，账号与数据保留；此前勾选了「记住此设备」的，更新后仍保持登录状态。</p>
+      <p>小版本更新弹窗可关闭、可暂不更新；大版本更新为强制更新，弹窗不可关闭，需完成更新后继续使用。</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary>更新弹窗关不掉怎么办？</summary>
+    <div class="ans">
+      <p>先看窗口标题分流，以下三种不可关闭属正常设计，不是故障：</p>
+      <ul>
+        <li>标题「发现重大更新」：大版本强制更新窗，点击「立即更新」完成应用内更新后即消失。</li>
+        <li>标题「该版本已停止服务」：当前版本已超出支持范围，只能更新到受支持版本后使用。</li>
+        <li>正文「系统维护中，请稍后再试」：系统维护窗，无按钮、无关闭方式，维护结束后自动消失。</li>
+        <li>带关闭按钮的普通提示是小版本更新，可直接关闭。</li>
+      </ul>
+      <p>如点「立即更新」后下载失败：检查网络后重试（更新走直连、不走节点）；仍失败时，前往「关于 → 检查更新」重试。</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary>更新公告在哪里看？</summary>
+    <div class="ans">
+      <p>每次版本更新、系统变更、维护通知与规则调整，都会在论坛「公告」板块发布官方帖子；软件内更新弹窗同时提供简要说明，两处内容同源。也可以在本网站的<a href="changelog.html">更新日志</a>页查看历次正式版本的说明汇总。</p>
+    </div>
+  </details>
+
+  <h2 class="faq-cat">封禁与申诉</h2>
+
+  <details class="faq">
+    <summary>账号被封了怎么办？</summary>
+    <div class="ans">
+      <ul>
+        <li>先认状态：登录提示写明解除时间的为限时封禁（到期自动恢复）；写明「该用户已被永久封禁」的为永久封禁。封禁期间账号不能登录、积分不累计，但账号数据不删除，解封后仍在。</li>
+        <li>申诉路径：封禁页设有申诉入口，可免登录提交；先通过身份核验（账户 ID 或邮箱加登录密码），再填写申诉说明，建议写明封禁发生的时间、封禁前的使用情况与认为不应封禁的理由。永久封禁可申诉 2 次，其他封禁可申诉 3 次，请在首次申诉时就把情况写完整。</li>
+        <li>审核作出结论后，可在原入口查询申诉状态；审核批准后封禁即时解除。另可发送邮件至 a718983610@gmail.com 申诉。</li>
+        <li>设备同时被封的，同一设备上新建账号也会被拦截，请勿试图以换号绕过。</li>
+      </ul>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary>密码输错被冻结了，和封禁是一回事吗？</summary>
+    <div class="ans">
+      <p>不是一回事。冻结是密码连续输错触发的保护措施：在登录页走「忘记密码」用邮箱重置密码即可解冻，重置通道不受冻结阻挡；邮箱不可用时可提交找回申诉。封禁是违规处置，两者的处理通道不同，不要在封禁申诉通道重复提交冻结问题。</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary>注销账号后还能恢复吗？</summary>
+    <div class="ans">
+      <p>注销设有 7 天冷静期：在安全中心提交注销后，账号进入 7 天冷静期，冷静期内可取消注销；冷静期结束账号正式注销。请注意，注销后积分清零、兑换码作废，注销前请先处理好积分与订单。</p>
+    </div>
+  </details>
+
+  <h2 class="faq-cat">论坛与聊天</h2>
+
+  <details class="faq">
+    <summary>公告帖下面可以评论吗？</summary>
+    <div class="ans">
+      <p>可以。公告板块仅官方可以发帖，但所有登录用户都可以在公告帖下留言评论；评论同样经过审核与禁言规则管理。如有疑问，也可在公告帖下留言或咨询智能客服。</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary>帖子发出去了，为什么别人看不到？</summary>
+    <div class="ans">
+      <p>帖子发布后先进入机器审核，结果分三档：内容正常会直接发布、对所有人可见；命中违规类目会直接驳回；介于两者之间会进入待人工审核，此时帖子仅您本人可见，巡审处理后发布或驳回。新注册账号 7 天内的首帖必进待审；新账号注册 1 小时内不可发帖（可浏览、回复）。您可以在「我的帖子」里查看自己帖子的状态。</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary>好友聊天是加密的吗？官方能看吗？</summary>
+    <div class="ans">
+      <p>好友一对一聊天采用端到端加密：服务器只中转与暂存密文，无法读取聊天内容，官方也看不到。在好友资料页可查看双方的安全码，通过当面、电话等软件之外的渠道与好友核对安全码一致，可确认会话未被替换。注意：智能客服与人工客服会话不在端到端加密范围内。</p>
+    </div>
+  </details>
+
+  <p class="crosslinks">版本更新内容见 <a href="changelog.html">更新日志</a>；更多问题可到 <a href="forum.html">论坛</a> 发帖求助。</p>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <span>© 2026 QFClash</span>
+      <span>
+        <a href="index.html">首页</a> ·
+        <a href="agreement.html">用户协议</a> ·
+        <a href="privacy.html">隐私说明</a> ·
+        <a href="forum.html">论坛</a> ·
+        <a href="changelog.html">更新日志</a> ·
+        <a href="faq.html">常见问题</a>
+      </span>
+    </div>
+    <p class="lic">QFClash 基于开源项目 FlClash 与 mihomo 内核开发，源代码以 GNU 通用公共许可证第三版（GPL-3.0）发布。FlClash、mihomo 等开源组件的权利归各自作者所有，并适用其随附许可证。</p>
+  </div>
+</footer>
+
+<script src="assets/auth.js?v=20261025d"></script>
+</body>
+</html>

@@ -1322,7 +1322,7 @@
     if (r.arg === 'camp' && r.sub) return forumCampPage(r.sub);
     view.innerHTML = forumHeaderHtml() + forumTabsHtml(forumState.tab) + '<div id="forumBody">' + sklCards(3) + '</div>';
     if (loggedIn()) showAvatar($('#forumAvatar'), '/profile/avatar', myAvatarVer, 48);
-    view.querySelectorAll('[data-ftab]').forEach(function (b) { b.addEventListener('click', function () { forumState.tab = b.getAttribute('data-ftab'); pageForum(route()); }); });
+    view.querySelectorAll('[data-ftab]').forEach(function (b) { b.addEventListener('click', function () { forumState.tab = b.getAttribute('data-ftab'); pageForum(route()); window.scrollTo(0, 0); }); });
     var body = $('#forumBody'); if (!body) return;
     if (forumState.tab === 'mine' || forumState.tab === 'reviews') {
       if (!loggedIn()) { body.innerHTML = '<div class="card"><p class="muted">登录后即可查看' + (forumState.tab === 'mine' ? '我的帖子' : '我的评价') + '。</p></div>'; return; }
@@ -1409,7 +1409,7 @@
       '<div class="row" style="margin:10px 2px 8px;">' + (loggedIn() ? '<button class="primary" id="newPostBtn" type="button">发布帖子</button>' : '<a class="primary" href="#/login">登录后发帖</a>') + '</div>' +
       '<div class="cfeed" id="postFeed">' + feedHtml + '</div>' +
       ((posts && posts.length >= 20) ? '<div class="load-more-wrap"><button class="ghost" id="morePostsBtn" type="button">加载更多</button></div>' : '') +
-      '<div id="composeBox"></div></section>' +
+      '</section>' +
       (loggedIn() ? '<button class="fab" id="fabPost" type="button" aria-label="发布帖子"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>发帖</button>' : '');
     fillAvatars(body);
     fillCampAvatars(body);
@@ -1438,13 +1438,35 @@
     });
     body.querySelectorAll('[data-btab]').forEach(function (b) { b.addEventListener('click', function () { forumState.board = b.getAttribute('data-btab'); forumState.campId = ''; pageForum(route()); }); });
     var ccf = $('#clearCampFilter'); if (ccf) ccf.addEventListener('click', function () { forumState.campId = ''; pageForum(route()); });
-    var np = $('#newPostBtn');
-    if (np) np.addEventListener('click', function () {
-      $('#composeBox').innerHTML = '<form class="stack" id="postForm" style="margin-top:10px;max-width:100%;"><label>板块<select name="board">' +
+    // 发帖弹窗（2026-10-25 站长定版重做）：「发布帖子」钮与底部栏「发帖」
+    // 两个入口统一打开覆盖层弹窗。旧实现把表单渲染进资讯流末尾的
+    // #composeBox 且按钮点击后不滚动定位——表单出现在四千多像素长的页面
+    // 最底部、按钮处毫无反馈，即站长实测「发布帖子点了没反应」的根子；
+    // 底部栏入口则靠 scrollIntoView 硬滚到底部，同样不是弹窗。此版一并纠正。
+    function closeComposeModal() {
+      var ov = document.getElementById('composeOverlay');
+      if (ov) ov.remove();
+      document.removeEventListener('keydown', composeEscClose);
+    }
+    function composeEscClose(e) { if (e.key === 'Escape') closeComposeModal(); }
+    function openComposeModal() {
+      if (!loggedIn()) { location.hash = '#/login'; return; }
+      closeComposeModal();
+      var ov = document.createElement('div');
+      ov.className = 'compose-overlay';
+      ov.id = 'composeOverlay';
+      ov.innerHTML = '<div class="compose-dialog" role="dialog" aria-modal="true" aria-label="发布帖子">' +
+        '<div class="compose-head"><h3>发布帖子</h3><button type="button" class="compose-x" data-close aria-label="关闭">×</button></div>' +
+        '<form class="stack wide" id="postForm"><label>板块<select name="board">' +
         boards.map(function (b) { return '<option value="' + esc(b.key || b.id) + '">' + esc(b.name || b.title || b.key) + '</option>'; }).join('') + '</select></label>' +
         '<label>营地（可选）<select name="campId"><option value="">不指定营地</option>' + camps.filter(function (c) { return c.joined; }).map(function (c) { return '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>'; }).join('') + '</select></label>' +
         '<label>标题<input name="title" required maxlength="80"></label><label>正文<textarea name="content" rows="5" required></textarea></label>' +
-        '<div class="err" id="postErr"></div><span class="muted small">帖子发布后将进入审核，审核通过后公开显示。</span><button class="primary" type="submit">提交发布</button></form>';
+        '<div class="err" id="postErr"></div><span class="muted small">帖子发布后将进入审核，审核通过后公开显示。</span>' +
+        '<div class="compose-actions"><button class="ghost" type="button" data-close>取消</button><button class="primary" type="submit">提交发布</button></div></form></div>';
+      document.body.appendChild(ov);
+      ov.addEventListener('click', function (e) { if (e.target === ov || e.target.closest('[data-close]')) closeComposeModal(); });
+      document.addEventListener('keydown', composeEscClose);
+      var titleInput = ov.querySelector('input[name="title"]'); if (titleInput) titleInput.focus();
       $('#postForm').addEventListener('submit', async function (ev) {
         ev.preventDefault();
         var unlock = lockSubmit(ev.target); if (!unlock) return;
@@ -1453,10 +1475,17 @@
           var bodyObj = { board: String(fd.get('board')), title: String(fd.get('title')).trim(), content: String(fd.get('content')).trim() };
           var campVal = String(fd.get('campId') || ''); if (campVal) bodyObj.campId = Number(campVal);
           var rr = await api('/forum/posts', { method: 'POST', body: bodyObj });
-          if (rr.ok) { forumState.tab = 'home'; pageForum(route()); } else $('#postErr').textContent = rr.message || '发布失败，请稍后重试。';
+          if (rr.ok) {
+            closeComposeModal();
+            forumState.tab = 'home'; forumState.board = ''; forumState.campId = '';
+            pageForum(route());
+            window.scrollTo(0, 0);
+          } else $('#postErr').textContent = rr.message || '发布失败，请稍后重试。';
         } finally { unlock(); }
       });
-    });
+    }
+    var np = $('#newPostBtn');
+    if (np) np.addEventListener('click', openComposeModal);
     // 加载更多：仅帖子流续页（与首屏同一查询口径，offset 递进），追加为资讯流条目
     var moreBtn = $('#morePostsBtn');
     if (moreBtn) {
@@ -1476,12 +1505,8 @@
         } else { moreBtn.disabled = false; moreBtn.textContent = '加载失败，点此重试'; }
       });
     }
-    // 发帖 FAB 与底部发帖钮——打开发帖框并滚到其位置
-    function openCompose() {
-      var b = $('#newPostBtn'); if (!b) return;
-      if (!$('#postForm')) b.click();
-      var box = $('#composeBox'); if (box && box.scrollIntoView) box.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+    // 发帖 FAB 与底部发帖钮——统一打开发帖弹窗（不再滚动到页面底部表单）
+    function openCompose() { openComposeModal(); }
     var fab = $('#fabPost');
     if (fab) fab.addEventListener('click', openCompose);
     if (composeWanted) { composeWanted = false; setTimeout(openCompose, 60); }

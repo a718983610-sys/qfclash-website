@@ -11,3 +11,8 @@ QFClash 官方网站源码（纯静态 HTML/CSS/JS，无构建依赖），通过
   防止用户浏览器缓存住旧文件。每次改动任何被引用的 CSS/JS，必须在同一次
   提交里把三页中该资源的 `?v=` 参数同步递增（日期＋字母递增，如
   20261023e → 20261023f），不许只改文件不改参数。
+- **网页版压缩构建（2026-10-25 起）**：`webapp/index.html` 引用的是压缩产物
+  `webapp/assets/app.min.js` / `app.min.css`，源码 `app.js` / `app.css` 保持
+  可读不直接引用。改完网页版源码后，发布前必须重跑
+  `node webapp/tools/minify.mjs`（首次先 `npm --prefix webapp/tools install`
+  装 terser 与 clean-css），把新产物与 `?v=` 标记递增同一次提交，缺一不可。

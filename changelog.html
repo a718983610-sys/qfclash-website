@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>QFClash 更新日志</title>
+<meta name="description" content="QFClash 历次正式版本的更新说明与发布日期。">
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/style.css?v=20261025d">
+<style>
+  .ver{border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin:0 0 18px;background:var(--card,#fff)}
+  .ver h2{font-size:21px;margin:0 0 2px;text-align:left}
+  .ver .vdate{color:var(--gray);font-size:13.5px;margin:0 0 12px}
+  .ver ul{margin:0;padding-left:20px}
+  .ver li{margin:5px 0;line-height:1.75}
+  .ver p{line-height:1.8;margin:0 0 6px}
+  .ver .vlink{margin-top:12px;font-size:14px}
+  .crosslinks{margin-top:26px;font-size:15px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="index.html"><img src="assets/icon.png" alt="QFClash">QFClash</a>
+    <nav>
+      <a href="index.html#about">产品介绍</a>
+      <a href="index.html#download">下载</a>
+      <a href="index.html#points">积分规则</a>
+      <a href="changelog.html">更新日志</a>
+      <a href="faq.html">常见问题</a>
+    </nav>
+    <div class="nav-auth" id="navAuth"></div>
+    <div class="nav-side">
+      <a class="nav-forum" href="forum.html">论坛</a>
+      <a class="nav-forum" href="./webapp/">网页版</a>
+    </div>
+  </div>
+</header>
+
+<div class="doc">
+  <a class="back" href="index.html">← 返回首页</a>
+  <h1>更新日志</h1>
+  <p class="meta">QFClash 历次正式版本的更新说明，按发布时间从新到旧排列。安卓版与 Windows 版同版本同步发布。</p>
+
+  <div class="ver">
+    <h2>v1.1.2</h2>
+    <p class="vdate">发布日期：2026 年 10 月 25 日</p>
+    <ul>
+      <li>账号登录更稳定：账号服务双入口自动切换，网络环境变化时登录更顺畅。</li>
+      <li>修复 Windows 版谷歌登录可能提示「尚未完成配置」的问题。</li>
+      <li>连接成功后应用自动检测网络是否真正可用，异常时给出明确原因提示。</li>
+      <li>聊天记录删除与云端清除更可靠。</li>
+      <li>细节修正：积分统计更准确，兑换重试不重复扣分，重复提交与客服消息发送问题修正。</li>
+    </ul>
+    <p class="vlink"><a href="webapp/index.html#/post/18">查看完整公告 →</a></p>
+  </div>
+
+  <div class="ver">
+    <h2>v1.1.1</h2>
+    <p class="vdate">发布日期：2026 年 10 月 25 日</p>
+    <ul>
+      <li>修复应用内更新下载可能长时间无响应的问题：全程显示实时进度（百分比与已下载大小），可随时取消；网络中断或超时自动重试，最终失败给出明确提示并返回主界面。</li>
+      <li>链接格式订阅可直接导入，应用自动转换；订阅中的无效展示条目自动跳过；粘贴地址自动清理首尾空格与换行，格式不对时明确提示。</li>
+      <li>订阅导入后无法启用时自动切换回上一个可用订阅；订阅更新失败时保留当前订阅内容，不被空内容或错误内容覆盖。</li>
+      <li>全应用文案逐条核对修正，官方说明与提示更准确易懂。</li>
+    </ul>
+    <p class="vlink"><a href="webapp/index.html#/post/17">查看完整公告 →</a></p>
+  </div>
+
+  <div class="ver">
+    <h2>v1.1.0</h2>
+    <p class="vdate">发布日期：2026 年 10 月 24 日</p>
+    <p>紧急修复与体验优化：全面修复个别订阅配置加载失败、连接后无法上网的问题（宽容加载模式）；打开应用直接进入主界面、检查更新改为后台进行；主界面新增「我的订阅」节点区；论坛与营地体验改进；封禁申诉入口与网页版对齐；福利兑换取消地区限制。</p>
+    <p class="vlink"><a href="webapp/index.html#/post/15">查看完整公告 →</a></p>
+  </div>
+
+  <div class="ver">
+    <h2>v1.0.1</h2>
+    <p class="vdate">发布日期：2026 年 10 月 24 日</p>
+    <p>紧急修复：修复订阅配置加载异常时开启连接后无法上网的问题；优化连接启动流程与节点选择自动修正。建议所有 v1.0.0 用户升级。</p>
+    <p class="vlink"><a href="webapp/index.html#/post/11">查看完整公告 →</a></p>
+  </div>
+
+  <div class="ver">
+    <h2>v1.0.0</h2>
+    <p class="vdate">发布日期：2026 年 10 月 24 日</p>
+    <p>QFClash 首个正式版本：全新账号体系与安全中心、访客模式（每日 2 小时）、积分兑换、好友与加密聊天、智能客服、论坛与营地、网页版同步上线；支持应用内更新（大版本强制更新）。</p>
+    <p class="vlink"><a href="webapp/index.html#/post/9">查看完整公告 →</a></p>
+  </div>
+
+  <p class="crosslinks">遇到问题？先看 <a href="faq.html">常见问题</a>，或前往 <a href="forum.html">论坛</a> 求助。</p>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <span>© 2026 QFClash</span>
+      <span>
+        <a href="index.html">首页</a> ·
+        <a href="agreement.html">用户协议</a> ·
+        <a href="privacy.html">隐私说明</a> ·
+        <a href="forum.html">论坛</a> ·
+        <a href="changelog.html">更新日志</a> ·
+        <a href="faq.html">常见问题</a>
+      </span>
+    </div>
+    <p class="lic">QFClash 基于开源项目 FlClash 与 mihomo 内核开发，源代码以 GNU 通用公共许可证第三版（GPL-3.0）发布。FlClash、mihomo 等开源组件的权利归各自作者所有，并适用其随附许可证。</p>
+  </div>
+</footer>
+
+<script src="assets/auth.js?v=20261025d"></script>
+</body>
+</html>

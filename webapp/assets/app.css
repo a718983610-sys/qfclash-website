@@ -17,6 +17,8 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+img { max-width: 100%; }
 body { background: var(--bg); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
 a { color: var(--brand); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -125,8 +127,8 @@ a.ghost { color: var(--ink); }
 a.item { color: var(--ink); }
 a.item:hover { background: #f7f9fc; text-decoration: none; }
 .item .avatar, .item img.avatar { width: 42px; height: 42px; border-radius: 50%; object-fit: cover; background: #e8edf5; }
-table.kv { width: 100%; border-collapse: collapse; }
-table.kv td { padding: 9px 8px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+table.kv { width: 100%; border-collapse: collapse; table-layout: fixed; }
+table.kv td { padding: 9px 8px; border-bottom: 1px solid var(--line-soft); vertical-align: top; overflow-wrap: anywhere; }
 table.kv tr:last-child td { border-bottom: none; }
 table.kv td:first-child { color: var(--muted); width: 132px; }
 form.stack { display: flex; flex-direction: column; gap: 12px; max-width: 440px; }
@@ -329,6 +331,21 @@ a.pane-item:hover { background: #f4f7fd; text-decoration: none; }
 .own-err { color: var(--danger, #c0392b); font-size: 13px; margin: 8px 0 0; }
 .app-toast { position: fixed; left: 50%; bottom: calc(86px + env(safe-area-inset-bottom)); transform: translateX(-50%) translateY(12px); background: rgba(23, 28, 40, .94); color: #fff; font-size: 14px; line-height: 1.5; padding: 10px 18px; border-radius: 999px; max-width: min(88vw, 520px); text-align: center; z-index: 1200; opacity: 0; pointer-events: none; transition: opacity .25s ease, transform .25s ease; box-shadow: 0 10px 30px rgba(10, 18, 40, .3); }
 .app-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+/* ---------- 发帖弹窗（2026-10-25 定版：两入口统一弹窗，替代页面底部内嵌表单） ---------- */
+.compose-overlay { position: fixed; inset: 0; background: rgba(20, 24, 33, .45); display: flex; align-items: center; justify-content: center; z-index: 70; padding: 16px; animation: fadeUp .18s ease both; }
+.compose-dialog { background: #fff; border-radius: 16px; max-width: 560px; width: 100%; padding: 22px; max-height: 88vh; max-height: 88dvh; overflow-y: auto; box-shadow: 0 18px 50px rgba(10, 18, 40, .25); }
+.compose-head { display: flex; align-items: center; margin-bottom: 14px; }
+.compose-head h3 { margin: 0; font-size: 17px; flex: 1 1 auto; }
+.compose-x { border: none; background: #f0f3f9; width: 34px; height: 34px; border-radius: 50%; font-size: 19px; line-height: 1; color: var(--muted); flex: 0 0 auto; cursor: pointer; }
+.compose-x:hover { background: #e4eaf3; color: var(--ink); }
+.compose-dialog form.stack { max-width: 100%; }
+.compose-dialog input, .compose-dialog select, .compose-dialog textarea { width: 100%; box-sizing: border-box; }
+.compose-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 4px; }
+@media (max-width: 959px) {
+  .compose-overlay { align-items: flex-end; padding: 0; }
+  .compose-dialog { border-radius: 18px 18px 0 0; max-height: 92dvh; padding: 20px 18px calc(18px + env(safe-area-inset-bottom)); }
+}
+
 .own-badge { display: inline-block; border-radius: 999px; padding: 1px 8px; font-size: 12px; background: #eef2f8; color: #335; }
 .own-badge.warn { background: var(--danger-soft); color: var(--danger); }
 
@@ -341,6 +358,10 @@ a.pane-item:hover { background: #f4f7fd; text-decoration: none; }
   .view { padding-left: 12px; padding-right: 12px; }
   .card { padding: 17px; }
   .topbar-note { display: none; }
+  .ftabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .ftabs::-webkit-scrollbar { display: none; }
+  .ftabs button { padding: 8px 12px; font-size: 14px; white-space: nowrap; }
+  table.kv td:first-child { width: 96px; }
   .brand { font-size: 17px; }
   .brand img { width: 30px; height: 30px; }
   .hero-in { padding: 20px 18px; }

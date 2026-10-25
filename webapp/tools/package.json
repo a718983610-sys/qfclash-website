@@ -1,0 +1,1 @@
+{"description":"QFClash 网页版发布工具（压缩构建）。不参与线上运行。","devDependencies":{"clean-css":"^5.3.3","terser":"^5.31.0"},"name":"qfclash-webapp-tools","private":true,"scripts":{"minify":"node minify.mjs"}}
