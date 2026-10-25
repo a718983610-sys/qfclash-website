@@ -413,10 +413,11 @@ input,textarea,select{transition:border-color .2s ease,box-shadow .2s ease}
 .promo-big{font-size:96px;font-weight:900;letter-spacing:10px}
 .promo-num,.promo-big{
   background-image:
-    repeating-linear-gradient(112deg, rgba(255,255,255,0) 0 44px, rgba(255,255,255,.17) 50px, rgba(255,255,255,0) 60px),
-    linear-gradient(180deg,#FFFFFF 4%,#D8EFFF 30%,#7CC0FF 52%,#2F7DFF 76%,#0A3FA0 100%);
+    linear-gradient(94deg, rgba(255,184,46,0) 40%, rgba(255,206,112,.85) 50%, rgba(255,184,46,0) 60%),
+    linear-gradient(94deg, rgba(160,210,255,0) 64%, rgba(160,210,255,.45) 71%, rgba(160,210,255,0) 78%),
+    linear-gradient(180deg,#FFFFFF 4%,#D9EFFF 30%,#8FC6FF 55%,#3B8BFF 78%,#0B47A8 100%);
   -webkit-background-clip:text;background-clip:text;color:transparent;
-  filter:drop-shadow(0 0 22px rgba(0,140,255,.38)) drop-shadow(0 7px 0 rgba(2,14,44,.45)) drop-shadow(0 18px 32px rgba(0,0,0,.30))}
+  filter:drop-shadow(-12px 0 8px rgba(140,190,255,.28)) drop-shadow(0 7px 0 rgba(2,14,44,.45)) drop-shadow(0 18px 32px rgba(0,0,0,.30))}
 .promo-slogan{font-size:27px;font-weight:700;letter-spacing:6px;margin-top:26px}
 .promo-desc{font-size:16.5px;line-height:1.85;color:rgba(255,255,255,.86);max-width:640px;margin:18px auto 0}
 .promo-pillars{display:grid;grid-template-columns:repeat(4,auto);gap:12px;margin-top:32px;justify-content:center}
