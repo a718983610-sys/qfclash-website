@@ -1458,7 +1458,9 @@
       ov.innerHTML = '<div class="compose-dialog" role="dialog" aria-modal="true" aria-label="发布帖子">' +
         '<div class="compose-head"><h3>发布帖子</h3><button type="button" class="compose-x" data-close aria-label="关闭">×</button></div>' +
         '<form class="stack wide" id="postForm"><label>板块<select name="board">' +
-        boards.map(function (b) { return '<option value="' + esc(b.key || b.id) + '">' + esc(b.name || b.title || b.key) + '</option>'; }).join('') + '</select></label>' +
+        // 公告板块仅官方可发（服务端守卫不变）：发帖下拉剔除 announcements，
+        // 免得普通用户选它写完提交才被拒；板块列表筛选仍保留公告（与官网 forum.js B-27 同口径）。
+        boards.filter(function (b) { return String(b.key || b.id) !== 'announcements'; }).map(function (b) { return '<option value="' + esc(b.key || b.id) + '">' + esc(b.name || b.title || b.key) + '</option>'; }).join('') + '</select></label>' +
         '<label>营地（可选）<select name="campId"><option value="">不指定营地</option>' + camps.filter(function (c) { return c.joined; }).map(function (c) { return '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>'; }).join('') + '</select></label>' +
         '<label>标题<input name="title" required maxlength="80"></label><label>正文<textarea name="content" rows="5" required></textarea></label>' +
         '<div class="err" id="postErr"></div><span class="muted small">帖子发布后将进入审核，审核通过后公开显示。</span>' +
@@ -1996,6 +1998,20 @@
         bar2.querySelectorAll('[data-react]').forEach(function (b) { b.addEventListener('click', function () { sendWire('qf1:' + JSON.stringify({ type: 'reaction', targetLocalId: String(b.getAttribute('data-target')), emoji: b.getAttribute('data-react') })); renderReactions(); }); });
       });
       div.appendChild(reactBtn);
+      // 删除（对所有人）：仅自己发的消息，与 App 端同名功能同口径——
+      // 确认文案逐字对齐 App；DELETE /chat/messages/:id（服务端只许删本人、
+      // 重复删幂等）；成功后本地气泡即时移除，对方侧刷新后消失（服务端既有行为）。
+      if (m.mine) {
+        var delBtn = document.createElement('button'); delBtn.className = 'ghost'; delBtn.type = 'button'; delBtn.textContent = '删除（对所有人）'; delBtn.style.marginLeft = '8px'; delBtn.style.padding = '2px 8px';
+        delBtn.addEventListener('click', async function () {
+          if (!await appConfirmDlg('删除消息', '删除后，这条消息将从服务器上删除，对方也无法再看到；本机记录与附件将一并删除。', true)) return;
+          delBtn.disabled = true;
+          var r = await api('/chat/messages/' + encodeURIComponent(m.id), { method: 'DELETE' });
+          if (r.ok) { div.remove(); appToast('消息已经删除。'); }
+          else { delBtn.disabled = false; appToast(r.message || '删除失败，请稍后重试。'); }
+        });
+        div.appendChild(delBtn);
+      }
       return div;
     }
     async function pullHistory() {
