@@ -5,6 +5,27 @@
 (function () {
   'use strict';
   var API = 'https://qfclash-account.a718983610.workers.dev';
+  var API_DIRECT = 'https://54.248.9.192:80';
+  // 入口轮换（与 App 同口径）：直连入口国内裸网可达、workers.dev 兜底，上次
+  // 成功的入口下次优先；/owner/、/admin/、/internal 在直连入口按设计 404，
+  // 这三类路径只走 workers.dev。
+  var API_GOOD_KEY = 'qf_api_good_base';
+  function apiBasesFor(path) {
+    if (/^\/(owner|admin|internal)(\/|$)/.test(path)) return [API];
+    var bases = [];
+    try {
+      var good = localStorage.getItem(API_GOOD_KEY);
+      if (good === API_DIRECT || good === API) bases.push(good);
+    } catch (e) {}
+    [API_DIRECT, API].forEach(function (b) { if (bases.indexOf(b) < 0) bases.push(b); });
+    return bases;
+  }
+  function apiRotates(path, method) {
+    var m = (method || 'GET').toUpperCase();
+    if (m === 'GET' || m === 'HEAD') return true;
+    if (m !== 'POST') return false;
+    return path.indexOf('/auth/') === 0 || path.indexOf('/guest/') === 0;
+  }
   var GOOGLE_CLIENT_ID = '340614194006-7a7anda3p473qjlhr67k6hn3o6aaqu9o.apps.googleusercontent.com';
   // 维护状态（L-02）：版本清单以 fork main 的 raw 地址为现行口径（与 App 同源）
   var RELEASE_URL = 'https://raw.githubusercontent.com/a718983610-sys/FlClash/main/qfclash-release.json';
@@ -141,6 +162,22 @@
     var o = Object.assign({}, opts || {}, { signal: ctrl.signal });
     return fetch(url, o).then(function (r) { clearTimeout(timer); return r; }, function (e) { clearTimeout(timer); throw e; });
   }
+  // 逐入口尝试：fetch 抛错（网络层没到达服务器）才换下一个；拿到任何 HTTP
+  // 响应即停（业务错误不是换入口的理由）。allowRotate=false 只试第一个
+  // 入口——普通写操作防重复提交，与 App 的 QfHttp 同口径。
+  async function fetchAcrossBases(path, opts, allowRotate) {
+    var bases = apiBasesFor(path);
+    var n = allowRotate ? bases.length : 1;
+    var lastErr = null;
+    for (var i = 0; i < n; i++) {
+      try {
+        var res = await fetchTimeout(bases[i] + path, opts);
+        try { localStorage.setItem(API_GOOD_KEY, bases[i]); } catch (e) {}
+        return res;
+      } catch (e) { lastErr = e; }
+    }
+    throw lastErr;
+  }
   async function api(path, opts) {
     opts = opts || {};
     var headers = {};
@@ -149,7 +186,7 @@
     if (opts.auth !== false && storeGet('qf_access_token')) headers['Authorization'] = 'Bearer ' + storeGet('qf_access_token');
     var res;
     try {
-      res = await fetchTimeout(API + path, { method: opts.method || 'GET', headers: headers, body: opts.bodyRaw !== undefined ? opts.bodyRaw : (opts.body ? JSON.stringify(opts.body) : undefined) });
+      res = await fetchAcrossBases(path, { method: opts.method || 'GET', headers: headers, body: opts.bodyRaw !== undefined ? opts.bodyRaw : (opts.body ? JSON.stringify(opts.body) : undefined) }, apiRotates(path, opts.method));
     } catch (e) {
       return { ok: false, network: true, message: (e && e.name === 'AbortError') ? '请求超时，请检查网络后重试。' : '网络连接失败，请检查网络后重试。' };
     }
@@ -224,8 +261,8 @@
     try {
       var headers = {}; var tok = storeGet('qf_access_token'); if (tok) headers['Authorization'] = 'Bearer ' + tok;
       var v = (ver != null && ver !== '') ? ver : avatarBust;
-      var url = API + path + (path.indexOf('?') >= 0 ? '&' : '?') + 'v=' + encodeURIComponent(v);
-      var res = await fetchTimeout(url, { headers: headers, cache: 'no-store' });
+      var busted = path + (path.indexOf('?') >= 0 ? '&' : '?') + 'v=' + encodeURIComponent(v);
+      var res = await fetchAcrossBases(busted, { headers: headers, cache: 'no-store' }, true);
       if (!res.ok) return '';
       return URL.createObjectURL(await res.blob());
     } catch (e) { return ''; }
@@ -2417,7 +2454,7 @@
     if (opts.headers) Object.keys(opts.headers).forEach(function (k) { headers[k] = opts.headers[k]; });
     var res;
     try {
-      res = await fetchTimeout(API + path, { method: opts.method || 'GET', headers: headers, body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined });
+      res = await fetchAcrossBases(path, { method: opts.method || 'GET', headers: headers, body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined }, (opts.method || 'GET') === 'GET' || path === '/support/guest/session');
     } catch (e) {
       return { ok: false, network: true, message: (e && e.name === 'AbortError') ? '请求超时，请检查网络后重试。' : '网络连接失败，请检查网络后重试。' };
     }
