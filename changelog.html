@@ -9,7 +9,7 @@
 <title>QFClash 更新日志</title>
 <meta name="description" content="QFClash 历次正式版本的更新说明与发布日期。">
 <link rel="icon" href="assets/icon.png">
-<link rel="stylesheet" href="assets/style.css?v=20261026a">
+<link rel="stylesheet" href="assets/style.css?v=20261026b">
 <style>
   .ver{border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin:0 0 18px;background:var(--card,#fff)}
   .ver h2{font-size:21px;margin:0 0 2px;text-align:left}
@@ -49,6 +49,17 @@
   <a class="back" href="index.html">← 返回首页</a>
   <h1>更新日志</h1>
   <p class="meta">QFClash 历次正式版本的更新说明，按发布时间从新到旧排列。安卓版与 Windows 版同版本同步发布。</p>
+
+  <div class="ver">
+    <h2>v2.0.3</h2>
+    <p class="vdate">发布日期：2026 年 10 月 26 日</p>
+    <ul>
+      <li>升级后订阅保留修复：修复更新到新版本后，已添加的订阅与当前选择丢失、需要重新导入的问题；今后升级将完整保留订阅与选择状态。用户手动删除订阅的行为不受影响。</li>
+      <li>规则模式分流优化：优化规则模式的分流规则，国内网站与局域网络流量直接连接，境外流量经所选节点转发；自带分流规则的订阅不受影响，仍按其原有规则执行。</li>
+      <li>新增「远程控制」：工具页新增远程控制入口，使用 QFRemote 账号登录后，即可在应用内查看与远程操作您的设备；账号的激活状态自动同步，并提供个人中心基础功能（查看账号与套餐信息、修改密码、退出登录）。</li>
+    </ul>
+    <p class="vlink"><a href="webapp/index.html#/post/23">查看完整公告 →</a></p>
+  </div>
 
   <div class="ver">
     <h2>v2.0.2</h2>
@@ -153,7 +164,7 @@
   </div>
 </footer>
 
-<script src="assets/auth.js?v=20261026a"></script>
+<script src="assets/auth.js?v=20261026b"></script>
 <script>
 // 更新日志折叠：最新 10 条直接显示，第 11 条起收进折叠区，点按钮展开/收起。
 // 条目不足 11 条时什么都不加，页面与原来完全一致；脚本失效时全部条目照常显示。
