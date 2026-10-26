@@ -1673,7 +1673,7 @@
     if (eb) eb.addEventListener('click', function () { showCampForm(c); });
     var odb = $('#campOwnerDelBtn');
     if (odb) odb.addEventListener('click', async function () {
-      // 站长删除营地：POST /owner/reviews/camps/:id/delete（站长会话＋reauth 两步确认，
+      // 站长删除营地：POST /owner/reviews/camps/:id/delete（站长会话＋确认一步，
       // 与管理台其他敏感操作同一口径）。接口由服务端线新增；未上线时服务端回错误
       // 文案会原样提示，不做假成功。
       var f = await ownerConfirm({ title: '删除营地（站长）', danger: true, body: '您将以站长身份删除营地「' + (c.name || campId) + '」。删除后该营地将不可见，此操作记录在管理审计中。' });
